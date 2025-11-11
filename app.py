@@ -26,6 +26,12 @@ logger = logging.getLogger(__name__)
 
 REQUEST_TIMEOUT = 30
 
+# Создаем папку static если её нет
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+if not os.path.exists(static_dir):
+    os.makedirs(static_dir)
+    logger.info(f"Created static directory: {static_dir}")
+
 # ============================================================================
 # Enums
 # ============================================================================
@@ -126,7 +132,6 @@ class ProcessingTask(BaseModel):
 # FastAPI Application
 # ============================================================================
 
-# Create app
 app = FastAPI(
     title="TED Scraper - Combined",
     description="Frontend + Backend for TED European Tenders Search",
@@ -144,10 +149,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static files
-static_dir = os.path.join(os.path.dirname(__file__), "static")
+# Mount static files - create empty directory if needed
 if os.path.exists(static_dir):
-    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+    try:
+        app.mount("/static", StaticFiles(directory=static_dir), name="static")
+        logger.info(f"Mounted static files from: {static_dir}")
+    except Exception as e:
+        logger.warning(f"Could not mount static files: {e}")
 
 # Global state
 processing_tasks: Dict[str, ProcessingTask] = {}
@@ -253,7 +261,7 @@ async def call_ted_api(
         "paginationMode": "page_number_mode"
     }
     
-    logger.info(f"Calling TED API: {json.dumps(request_body)}")
+    logger.info(f"Calling TED API with query: {query[:100]}...")
     
     try:
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
@@ -287,7 +295,7 @@ async def root():
     index_path = os.path.join(os.path.dirname(__file__), "index.html")
     if os.path.exists(index_path):
         return FileResponse(index_path)
-    return {"error": "Frontend not found"}
+    return {"error": "Frontend not found", "message": "index.html not loaded"}
 
 
 @app.get("/{path:path}")
@@ -333,7 +341,7 @@ async def health_check():
 async def search(request: SearchRequest):
     """Search for tenders"""
     
-    logger.info(f"Search request received: {request}")
+    logger.info(f"Search request: {request.filters}")
     
     # Build query
     query = build_ted_query(request.filters)
@@ -369,7 +377,7 @@ async def search(request: SearchRequest):
 async def create_processing_task(task: ProcessingTask, background_tasks: BackgroundTasks):
     """Create a processing task for microservices"""
     
-    logger.info(f"Processing task created: {task.task_id} ({task.task_type})")
+    logger.info(f"Processing task created: {task.task_id}")
     processing_tasks[task.task_id] = task
     
     return {
