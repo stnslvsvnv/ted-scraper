@@ -253,8 +253,9 @@ async def call_ted_api(
     if fields is None:
         fields = ["CONTENT"]
     
+    # ВАЖНО: Параметр должен быть "q" не "query"!
     request_body = {
-        "q": query,
+        "q": query,  # ← ПРАВИЛЬНО! Было "query", теперь "q"
         "fields": fields,
         "page": page,
         "pageSize": page_size,
@@ -263,6 +264,7 @@ async def call_ted_api(
     }
     
     logger.info(f"Calling TED API with query: {query[:100]}...")
+    logger.debug(f"Request body: {json.dumps(request_body)}")
     
     try:
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
