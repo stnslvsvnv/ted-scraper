@@ -1,21 +1,15 @@
 version: '3.8'
 
 services:
-  # Combined Frontend + Backend service
   ted-scraper:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: ted-scraper
     ports:
-      - "8846:8846"  # Frontend + Backend combined
-      - "8847:8847"  # Alternative backend port (if needed)
+      - "8846:8846"
     environment:
       - LOG_LEVEL=info
-    volumes:
-      - ./app.py:/app/app.py:ro
-      - ./index.html:/app/index.html:ro
-      - ./static/:/app/static/:ro
-    networks:
-      - ted-network
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8846/health"]
@@ -23,16 +17,3 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
-
-networks:
-  ted-network:
-    driver: bridge
-
-# Usage:
-# docker-compose up --build
-# docker-compose down
-# docker-compose logs -f ted-scraper
-#
-# Access:
-# Frontend: http://localhost:8846
-# API Docs: http://localhost:8846/api/docs
