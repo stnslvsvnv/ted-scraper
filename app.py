@@ -20,7 +20,8 @@ import os
 # Конфигурация
 # ============================================================================
 
-TED_API_BASE_URL = "https://ted.europa.eu/api/v3.0/notices/search"
+# ОБНОВЛЕННЫЙ ENDPOINT (новый API)
+TED_API_BASE_URL = "https://api.ted.europa.eu/v3/notices/search"
 LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 logger = logging.getLogger(__name__)
@@ -86,7 +87,7 @@ class SearchRequest(BaseModel):
     sort_column: Optional[SortColumnEnum] = Field(SortColumnEnum.PUBLICATION_NUMBER)
     sort_order: Optional[SortOrderEnum] = Field(SortOrderEnum.DESC)
     pagination_mode: PaginationModeEnum = Field(PaginationModeEnum.PAGE_NUMBER)
-    return_fields: Optional[List[str]] = Field(["CONTENT"])
+    return_fields: Optional[List[str]] = Field(["publication-number", "notice-title", "buyer-name"])
 
 
 class NoticeItem(BaseModel):
@@ -170,19 +171,15 @@ def build_ted_query(filters: SearchFilters) -> str:
     query_parts = []
     
     if filters.full_text:
-        query_parts.append(f"FT={filters.full_text}")
+        query_parts.append(f"({filters.full_text})")
     
     if filters.cpv_codes:
-        cpv_query = " OR ".join([f"classification-cpv = {code}" for code in filters.cpv_codes])
-        query_parts.append(f"({cpv_query})" if len(filters.cpv_codes) > 1 else cpv_query)
+        cpv_query = " OR ".join([f"cpv-code = {code}" for code in filters.cpv_codes])
+        query_parts.append(f"({cpv_query})")
     
     if filters.buyer_countries:
-        country_query = " OR ".join([f"buyer-country = {country}" for country in filters.buyer_countries])
-        query_parts.append(f"({country_query})" if len(filters.buyer_countries) > 1 else country_query)
-    
-    if filters.notice_types:
-        notice_query = " OR ".join([f"notice-type = {notice_type}" for notice_type in filters.notice_types])
-        query_parts.append(f"({notice_query})" if len(filters.notice_types) > 1 else notice_query)
+        country_query = " OR ".join([f"place-of-performance IN ({country})" for country in filters.buyer_countries])
+        query_parts.append(f"({country_query})")
     
     if filters.publication_date_from:
         query_parts.append(f"publication-date >= {filters.publication_date_from}")
@@ -190,19 +187,8 @@ def build_ted_query(filters: SearchFilters) -> str:
     if filters.publication_date_to:
         query_parts.append(f"publication-date <= {filters.publication_date_to}")
     
-    if filters.min_value:
-        query_parts.append(f"contract-estimated-value >= {filters.min_value}")
-    
-    if filters.max_value:
-        query_parts.append(f"contract-estimated-value <= {filters.max_value}")
-    
-    if filters.procedure_type:
-        query_parts.append(f"procedure-type = {filters.procedure_type}")
-    
-    if filters.contract_status:
-        query_parts.append(f"contract-status = {filters.contract_status}")
-    
     if not query_parts:
+        # Если никаких фильтров - используем простой запрос для получения последних тендеров
         query_parts.append("*")
     
     query = " AND ".join(query_parts)
@@ -214,22 +200,22 @@ def parse_ted_response(data: Dict[str, Any]) -> List[NoticeItem]:
     """Parse TED API response to NoticeItem objects"""
     notices = []
     
-    for notice in data.get("notices", []):
+    # Новый API возвращает результаты в массиве "results"
+    results = data.get("results", [])
+    
+    for notice in results:
         try:
-            publication_number = notice.get("ND", {}).get("value", "N/A")
+            publication_number = notice.get("publication-number", "N/A")
             
             notice_item = NoticeItem(
                 publication_number=publication_number,
-                publication_date=notice.get("PD", {}).get("value"),
-                notice_type=notice.get("BT-02-notice", {}).get("value"),
-                buyer_name=notice.get("CA", {}).get("value"),
-                title=notice.get("TI", {}).get("value"),
-                cpv_codes=notice.get("CPV", {}).get("value", []) if isinstance(notice.get("CPV", {}).get("value"), list) else None,
-                country=notice.get("CY", {}).get("value"),
-                estimated_value=notice.get("OC", {}).get("value"),
-                content_html=notice.get("CONTENT", {}).get("value"),
-                url=f"https://ted.europa.eu/en/notice/{publication_number}",
-                metadata={"raw_data": notice}
+                publication_date=notice.get("publication-date"),
+                notice_type=notice.get("notice-type"),
+                buyer_name=notice.get("buyer-name"),
+                title=notice.get("notice-title"),
+                cpv_codes=notice.get("cpv-code") if isinstance(notice.get("cpv-code"), list) else ([notice.get("cpv-code")] if notice.get("cpv-code") else None),
+                country=notice.get("place-of-performance"),
+                url=f"https://ted.europa.eu/en/notice/{publication_number}" if publication_number != "N/A" else None,
             )
             
             notices.append(notice_item)
@@ -248,22 +234,23 @@ async def call_ted_api(
     scope: str = "ACTIVE",
     fields: List[str] = None
 ) -> Dict[str, Any]:
-    """Call TED Search API"""
+    """Call TED Search API (v3 - new endpoint)"""
     
     if fields is None:
-        fields = ["CONTENT"]
+        fields = ["publication-number", "notice-title", "buyer-name", "publication-date", "notice-type", "cpv-code", "place-of-performance"]
     
-    # ВАЖНО: Параметр должен быть "q" не "query"!
+    # НОВЫЙ API требует "query" и "limit" (не "pageSize")
     request_body = {
-        "q": query,  # ← ПРАВИЛЬНО! Было "query", теперь "q"
+        "query": query,  # ← Используем "query" для нового API
         "fields": fields,
         "page": page,
-        "pageSize": page_size,
+        "limit": page_size,  # ← Используем "limit" вместо "pageSize"
         "scope": scope,
-        "paginationMode": "page_number_mode"
+        "paginationMode": "PAGE_NUMBER"
     }
     
-    logger.info(f"Calling TED API with query: {query[:100]}...")
+    logger.info(f"Calling TED API v3 with query: {query[:100]}...")
+    logger.info(f"Endpoint: {TED_API_BASE_URL}")
     logger.debug(f"Request body: {json.dumps(request_body)}")
     
     try:
@@ -274,14 +261,19 @@ async def call_ted_api(
                 headers={"Content-Type": "application/json"}
             )
             
+            logger.info(f"API Response Status: {response.status_code}")
+            
             response.raise_for_status()
             data = response.json()
-            logger.info(f"Got {len(data.get('notices', []))} results from TED API")
+            
+            total_results = data.get("total", 0)
+            results_count = len(data.get("results", []))
+            logger.info(f"Got {results_count} results from {total_results} total matches")
             
             return data
             
     except httpx.HTTPError as e:
-        logger.error(f"TED API error: {e}")
+        logger.error(f"TED API HTTP error: {e}")
         raise HTTPException(status_code=502, detail=f"TED API error: {str(e)}")
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
@@ -355,14 +347,14 @@ async def search(request: SearchRequest):
         page=request.page,
         page_size=request.page_size,
         scope=request.scope.value,
-        fields=request.return_fields or ["CONTENT"]
+        fields=request.return_fields
     )
     
     # Parse response
     notices = parse_ted_response(ted_response)
     
     # Calculate pages
-    total_notices = ted_response.get("totalNotices", 0)
+    total_notices = ted_response.get("total", 0)
     total_pages = (total_notices + request.page_size - 1) // request.page_size
     
     return SearchResponse(
@@ -417,7 +409,7 @@ async def get_notice_details(notice_id: str):
         query=query,
         page=1,
         page_size=1,
-        fields=["CONTENT"]
+        fields=["publication-number", "notice-title", "buyer-name", "publication-date", "notice-type", "cpv-code", "place-of-performance"]
     )
     
     notices = parse_ted_response(ted_response)
@@ -460,6 +452,7 @@ if __name__ == "__main__":
     print("🔌 API: http://localhost:8846/search")
     print("📚 API Docs: http://localhost:8846/api/docs")
     print("💚 Health: http://localhost:8846/health")
+    print("🌐 TED API: https://api.ted.europa.eu/v3/notices/search")
     print("="*60 + "\n")
     
     uvicorn.run(
