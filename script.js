@@ -1,8 +1,7 @@
-/* TED Scraper Frontend JavaScript */
+/* TED Scraper Frontend - FINAL WORKING VERSION */
 
-// Configuration - АВТОМАТИЧЕСКИ ОПРЕДЕЛЯЕМ АДРЕС БЭКЕНДА
+// Configuration
 const CONFIG = {
-    // Используем текущий протокол, хост и порт
     BACKEND_BASE_URL: window.location.origin,
     REQUEST_TIMEOUT: 30000
 };
@@ -12,14 +11,12 @@ console.log('Backend URL:', CONFIG.BACKEND_BASE_URL);
 // State
 let currentSearchData = null;
 let currentPage = 1;
-let currentSearchQuery = null;
 
 // DOM Elements
-const searchForm = document.getElementById('search-form');
 const searchBtn = document.getElementById('search-btn');
 const backendStatus = document.getElementById('backend-status');
-const emptyState = document.getElementById('empty-state');
 const resultsContainer = document.getElementById('results-container');
+const emptyState = document.getElementById('empty-state');
 const loadingSpinner = document.getElementById('loading-spinner');
 const errorAlert = document.getElementById('error-alert');
 const searchStatus = document.getElementById('search-status');
@@ -34,43 +31,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Setup Event Listeners
 function setupEventListeners() {
-    searchBtn.addEventListener('click', performSearch);
-    searchForm.addEventListener('reset', resetSearch);
+    if (searchBtn) {
+        searchBtn.addEventListener('click', performSearch);
+    }
 
-    // Toggle sections
-    document.querySelectorAll('.toggle-section').forEach(el => {
-        el.addEventListener('click', (e) => {
-            e.preventDefault();
-            const section = el.dataset.section;
-            const content = el.closest('.mb-4').querySelector('.section-content');
-            const isCollapsed = content.style.display === 'none';
-            
-            content.style.display = isCollapsed ? 'block' : 'none';
-            el.dataset.collapsed = isCollapsed ? 'false' : 'true';
-            el.querySelector('i').style.transform = isCollapsed ? 'rotate(0deg)' : 'rotate(-90deg)';
-        });
-    });
-
-    // Pagination click
+    // Document clicks
     document.addEventListener('click', (e) => {
         if (e.target.closest('.page-link')) {
             e.preventDefault();
             const page = e.target.dataset.page;
-            if (page && currentSearchQuery) {
+            if (page) {
                 currentPage = parseInt(page);
                 performSearch();
-                window.scrollTo({ top: 0, behavior: 'smooth' });
             }
         }
-    });
 
-    // Row click for details
-    document.addEventListener('click', (e) => {
-        const row = e.target.closest('tbody tr');
-        if (row) {
-            const publicationNumber = row.dataset.publicationNumber;
-            if (publicationNumber) {
-                showNoticeDetails(publicationNumber);
+        if (e.target.closest('tbody tr')) {
+            const row = e.target.closest('tbody tr');
+            if (row) {
+                const pubNum = row.dataset.publicationNumber;
+                if (pubNum) {
+                    showNoticeDetails(pubNum);
+                }
             }
         }
     });
@@ -78,12 +60,16 @@ function setupEventListeners() {
 
 // Set default dates
 function setDefaultDates() {
-    const toDate = new Date();
+    const toDate = new Date().toISOString().split('T')[0];
     const fromDate = new Date();
     fromDate.setFullYear(fromDate.getFullYear() - 1);
+    const fromDateStr = fromDate.toISOString().split('T')[0];
 
-    document.getElementById('pub-date-to').valueAsDate = toDate;
-    document.getElementById('pub-date-from').valueAsDate = fromDate;
+    const pubDateFrom = document.getElementById('pub-date-from');
+    const pubDateTo = document.getElementById('pub-date-to');
+    
+    if (pubDateFrom) pubDateFrom.value = fromDateStr;
+    if (pubDateTo) pubDateTo.value = toDate;
 }
 
 // Check Backend Status
@@ -94,9 +80,11 @@ async function checkBackendStatus() {
         });
         
         if (response.ok) {
-            backendStatus.textContent = 'Online';
-            backendStatus.classList.remove('bg-danger');
-            backendStatus.classList.add('bg-success');
+            if (backendStatus) {
+                backendStatus.textContent = 'Online';
+                backendStatus.classList.remove('bg-danger');
+                backendStatus.classList.add('bg-success');
+            }
             console.log('✓ Backend is online');
         } else {
             setBackendOffline();
@@ -106,88 +94,63 @@ async function checkBackendStatus() {
         setBackendOffline();
     }
 
-    // Check every 30 seconds
     setTimeout(checkBackendStatus, 30000);
 }
 
 function setBackendOffline() {
-    backendStatus.textContent = 'Offline';
-    backendStatus.classList.remove('bg-success');
-    backendStatus.classList.add('bg-danger');
+    if (backendStatus) {
+        backendStatus.textContent = 'Offline';
+        backendStatus.classList.remove('bg-success');
+        backendStatus.classList.add('bg-danger');
+    }
 }
 
 // Get form data
-function getSearchFilters() {
+function getSearchRequest() {
+    const fullText = document.getElementById('full-text')?.value?.trim() || null;
+    const pubDateFrom = document.getElementById('pub-date-from')?.value || null;
+    const pubDateTo = document.getElementById('pub-date-to')?.value || null;
+    const pageSize = parseInt(document.getElementById('page-size')?.value || 10);
+
     return {
-        full_text: getInputValue('full-text') || null,
-        cpv_codes: getArrayValue('cpv-codes'),
-        buyer_countries: getArrayValue('buyer-countries'),
-        publication_date_from: document.getElementById('pub-date-from').value || null,
-        publication_date_to: document.getElementById('pub-date-to').value || null,
-        min_value: getNumberValue('min-value'),
-        max_value: getNumberValue('max-value'),
+        filters: {
+            full_text: fullText,
+            cpv_codes: null,
+            buyer_countries: null,
+            publication_date_from: pubDateFrom,
+            publication_date_to: pubDateTo
+        },
+        page: currentPage,
+        page_size: pageSize
     };
-}
-
-function getInputValue(id) {
-    const val = document.getElementById(id).value.trim();
-    return val ? val : null;
-}
-
-function getNumberValue(id) {
-    const val = parseFloat(document.getElementById(id).value);
-    return isNaN(val) ? null : val;
-}
-
-function getArrayValue(id) {
-    const val = document.getElementById(id).value.trim();
-    if (!val) return null;
-    return val.split(',').map(v => v.trim()).filter(v => v);
 }
 
 // Perform search
 async function performSearch() {
     try {
-        // Disable button and show loading
-        searchBtn.disabled = true;
-        loadingSpinner.style.display = 'block';
-        emptyState.style.display = 'none';
-        resultsContainer.style.display = 'none';
-        errorAlert.style.display = 'none';
-        searchStatus.style.display = 'block';
+        if (searchBtn) searchBtn.disabled = true;
+        if (loadingSpinner) loadingSpinner.style.display = 'block';
+        if (emptyState) emptyState.style.display = 'none';
+        if (resultsContainer) resultsContainer.style.display = 'none';
+        if (errorAlert) errorAlert.style.display = 'none';
+        if (searchStatus) searchStatus.style.display = 'block';
+
+        const request = getSearchRequest();
         
-        // Update status
-        document.getElementById('status-text').textContent = '🔍 Searching...';
-
-        // Build request
-        const filters = getSearchFilters();
-        const pageSize = parseInt(document.getElementById('page-size').value);
-        
-        const request = {
-            filters,
-            page: currentPage,
-            page_size: pageSize,
-            scope: document.getElementById('scope').value,
-            sort_column: document.getElementById('sort-column').value,
-            sort_order: document.getElementById('sort-order').value
-        };
-
-        currentSearchQuery = request;
-
         console.log('Sending search request:', request);
 
-        // Send request
         const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/search`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify(request),
-            timeout: CONFIG.REQUEST_TIMEOUT
+            body: JSON.stringify(request)
         });
 
+        console.log('Response status:', response.status);
+
         if (!response.ok) {
-            const errorData = await response.json();
+            const errorData = await response.json().catch(() => ({}));
             throw new Error(errorData.detail || `HTTP ${response.status}`);
         }
 
@@ -195,184 +158,148 @@ async function performSearch() {
         currentSearchData = data;
 
         console.log('Search results:', data);
-
-        // Display results
         displayResults(data);
-        document.getElementById('status-text').textContent = 
-            `✓ Found ${data.total_notices} results`;
-        searchStatus.classList.remove('alert-warning');
-        searchStatus.classList.add('alert-success');
+        
+        if (searchStatus) {
+            searchStatus.classList.remove('alert-warning');
+            searchStatus.classList.add('alert-success');
+        }
 
     } catch (error) {
         console.error('Search error:', error);
         showError(`Search failed: ${error.message}`);
-        document.getElementById('status-text').textContent = 'Search error';
     } finally {
-        searchBtn.disabled = false;
-        loadingSpinner.style.display = 'none';
+        if (searchBtn) searchBtn.disabled = false;
+        if (loadingSpinner) loadingSpinner.style.display = 'none';
     }
 }
 
 // Display results
 function displayResults(data) {
     const tbody = document.getElementById('results-tbody');
+    if (!tbody) return;
+
     tbody.innerHTML = '';
 
     if (!data.notices || data.notices.length === 0) {
-        emptyState.style.display = 'block';
-        emptyState.innerHTML = `
-            <i class="fas fa-inbox text-muted" style="font-size: 3rem;"></i>
-            <h5 class="mt-3 text-muted">No results found</h5>
-            <p class="text-muted">Try adjusting your search criteria</p>
-        `;
-        resultsContainer.style.display = 'none';
+        if (emptyState) {
+            emptyState.style.display = 'block';
+            emptyState.innerHTML = `
+                <i class="fas fa-inbox text-muted" style="font-size: 3rem;"></i>
+                <h5 class="mt-3 text-muted">No results found</h5>
+                <p class="text-muted">Try adjusting your search criteria</p>
+            `;
+        }
+        if (resultsContainer) resultsContainer.style.display = 'none';
         return;
     }
 
     // Populate table
-    data.notices.forEach((notice, index) => {
+    data.notices.forEach((notice) => {
         const row = document.createElement('tr');
         row.dataset.publicationNumber = notice.publication_number;
-        row.dataset.index = index;
         
-        const estimatedValue = notice.estimated_value 
-            ? `€${formatNumber(notice.estimated_value)}`
-            : '-';
-
-        const cpvCodes = notice.cpv_codes && notice.cpv_codes.length > 0
-            ? notice.cpv_codes.slice(0, 1).join(', ')
-            : '-';
+        const pubNum = notice.publication_number || 'N/A';
+        const date = notice.publication_date ? new Date(notice.publication_date).toLocaleDateString() : '-';
+        const title = notice.title || 'N/A';
+        const buyer = notice.buyer_name || '-';
+        const country = notice.country || '-';
+        const cpv = notice.cpv_codes ? (Array.isArray(notice.cpv_codes) ? notice.cpv_codes[0] : notice.cpv_codes) : '-';
 
         row.innerHTML = `
-            <td title="${notice.publication_number}">
-                <a href="#" onclick="return false" style="cursor: pointer;">
-                    ${notice.publication_number}
-                </a>
-            </td>
-            <td title="${notice.publication_date}">
-                ${formatDate(notice.publication_date)}
-            </td>
-            <td title="${notice.title || 'N/A'}">
-                <strong>${truncate(notice.title || 'N/A', 50)}</strong>
-            </td>
-            <td title="${notice.buyer_name || 'N/A'}">
-                ${truncate(notice.buyer_name || 'N/A', 30)}
-            </td>
-            <td>${notice.country || '-'}</td>
-            <td>${cpvCodes}</td>
-            <td>${estimatedValue}</td>
-            <td>
-                <button class="btn btn-sm btn-outline-primary" onclick="return false;" title="View details">
-                    <i class="fas fa-external-link-alt"></i>
-                </button>
-            </td>
+            <td>${pubNum}</td>
+            <td>${date}</td>
+            <td><strong>${truncate(title, 50)}</strong></td>
+            <td>${truncate(buyer, 30)}</td>
+            <td>${country}</td>
+            <td>${cpv}</td>
+            <td><button class="btn btn-sm btn-outline-primary"><i class="fas fa-external-link-alt"></i></button></td>
         `;
         
         tbody.appendChild(row);
     });
 
-    // Update pagination info
-    document.getElementById('showing-count').textContent = 
-        Math.min(data.page_size, data.notices.length);
-    document.getElementById('total-count').textContent = data.total_notices;
-    document.getElementById('current-page').textContent = data.current_page;
-    document.getElementById('total-pages').textContent = data.total_pages;
+    // Update info
+    const showingEl = document.getElementById('showing-count');
+    const totalEl = document.getElementById('total-count');
+    const pageEl = document.getElementById('current-page');
+    const pagesEl = document.getElementById('total-pages');
+    
+    if (showingEl) showingEl.textContent = data.notices.length;
+    if (totalEl) totalEl.textContent = data.total_notices;
+    if (pageEl) pageEl.textContent = data.current_page;
+    if (pagesEl) pagesEl.textContent = data.total_pages;
 
-    // Generate pagination
+    // Pagination
     generatePagination(data);
 
     // Show results
-    resultsContainer.style.display = 'block';
+    if (resultsContainer) resultsContainer.style.display = 'block';
 }
 
 // Generate pagination
 function generatePagination(data) {
-    const paginationContainer = document.getElementById('pagination-container');
     const pagination = document.getElementById('pagination');
+    if (!pagination) return;
+
     pagination.innerHTML = '';
 
-    const totalPages = data.total_pages;
-    const currentPage = data.current_page;
-    const maxPagesToShow = 7;
+    const totalPages = data.total_pages || 1;
+    const currentPage_ = data.current_page || 1;
 
-    if (totalPages <= 1) {
-        paginationContainer.style.display = 'none';
-        return;
-    }
+    if (totalPages <= 1) return;
 
-    paginationContainer.style.display = 'block';
-
-    // Previous button
-    if (currentPage > 1) {
+    // Previous
+    if (currentPage_ > 1) {
         const li = document.createElement('li');
         li.className = 'page-item';
-        li.innerHTML = `<a class="page-link" href="#" data-page="${currentPage - 1}">← Previous</a>`;
+        li.innerHTML = `<a class="page-link" href="#" data-page="${currentPage_ - 1}">← Previous</a>`;
         pagination.appendChild(li);
     }
 
-    // Page numbers
-    let startPage = Math.max(1, currentPage - Math.floor(maxPagesToShow / 2));
-    let endPage = Math.min(totalPages, startPage + maxPagesToShow - 1);
-    
-    if (endPage - startPage < maxPagesToShow - 1) {
-        startPage = Math.max(1, endPage - maxPagesToShow + 1);
-    }
-
-    if (startPage > 1) {
-        const li = document.createElement('li');
-        li.className = 'page-item';
-        li.innerHTML = `<a class="page-link" href="#" data-page="1">1</a>`;
-        pagination.appendChild(li);
-
-        if (startPage > 2) {
-            const li = document.createElement('li');
-            li.className = 'page-item disabled';
-            li.innerHTML = `<span class="page-link">...</span>`;
-            pagination.appendChild(li);
-        }
-    }
-
-    for (let page = startPage; page <= endPage; page++) {
-        const li = document.createElement('li');
-        li.className = page === currentPage ? 'page-item active' : 'page-item';
-        li.innerHTML = `<a class="page-link" href="#" data-page="${page}">${page}</a>`;
-        pagination.appendChild(li);
-    }
-
-    if (endPage < totalPages) {
-        if (endPage < totalPages - 1) {
-            const li = document.createElement('li');
-            li.className = 'page-item disabled';
-            li.innerHTML = `<span class="page-link">...</span>`;
-            pagination.appendChild(li);
+    // Numbers
+    for (let i = 1; i <= totalPages; i++) {
+        if (i < 1 || i > totalPages) continue;
+        if (i > currentPage_ + 2 && i < totalPages - 2) {
+            if (i === currentPage_ + 3) {
+                const li = document.createElement('li');
+                li.className = 'page-item disabled';
+                li.innerHTML = '<span class="page-link">...</span>';
+                pagination.appendChild(li);
+            }
+            continue;
         }
 
         const li = document.createElement('li');
-        li.className = 'page-item';
-        li.innerHTML = `<a class="page-link" href="#" data-page="${totalPages}">${totalPages}</a>`;
+        li.className = i === currentPage_ ? 'page-item active' : 'page-item';
+        li.innerHTML = `<a class="page-link" href="#" data-page="${i}">${i}</a>`;
         pagination.appendChild(li);
     }
 
-    // Next button
-    if (currentPage < totalPages) {
+    // Next
+    if (currentPage_ < totalPages) {
         const li = document.createElement('li');
         li.className = 'page-item';
-        li.innerHTML = `<a class="page-link" href="#" data-page="${currentPage + 1}">Next →</a>`;
+        li.innerHTML = `<a class="page-link" href="#" data-page="${currentPage_ + 1}">Next →</a>`;
         pagination.appendChild(li);
     }
 }
 
 // Show notice details
-async function showNoticeDetails(publicationNumber) {
+async function showNoticeDetails(pubNum) {
     try {
-        const modal = new bootstrap.Modal(document.getElementById('notice-modal'));
+        const modal = new bootstrap.Modal(document.getElementById('notice-modal') || new HTMLElement());
         const modalBody = document.getElementById('modal-body');
         
-        document.getElementById('modal-title').textContent = `Loading ${publicationNumber}...`;
+        if (!modalBody) return;
+        
+        const modalTitle = document.getElementById('modal-title');
+        if (modalTitle) modalTitle.textContent = `Loading ${pubNum}...`;
+        
         modalBody.innerHTML = '<div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div>';
         modal.show();
 
-        const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/notice/${publicationNumber}`);
+        const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/notice/${pubNum}`);
         
         if (!response.ok) {
             throw new Error('Failed to fetch notice details');
@@ -380,105 +307,56 @@ async function showNoticeDetails(publicationNumber) {
 
         const notice = await response.json();
 
-        // Format content
         const html = `
             <div class="notice-details">
-                <div class="notice-details-row">
-                    <div class="notice-details-label">Publication Number</div>
-                    <div class="notice-details-value">${notice.publication_number}</div>
+                <div class="mb-3">
+                    <strong>Publication Number:</strong> ${notice.publication_number}
                 </div>
-                <div class="notice-details-row">
-                    <div class="notice-details-label">Date</div>
-                    <div class="notice-details-value">${formatDate(notice.publication_date)}</div>
+                <div class="mb-3">
+                    <strong>Date:</strong> ${notice.publication_date || 'N/A'}
                 </div>
-                <div class="notice-details-row">
-                    <div class="notice-details-label">Title</div>
-                    <div class="notice-details-value"><strong>${notice.title || 'N/A'}</strong></div>
+                <div class="mb-3">
+                    <strong>Title:</strong> ${notice.title || 'N/A'}
                 </div>
-                <div class="notice-details-row">
-                    <div class="notice-details-label">Buyer</div>
-                    <div class="notice-details-value">${notice.buyer_name || 'N/A'}</div>
+                <div class="mb-3">
+                    <strong>Buyer:</strong> ${notice.buyer_name || 'N/A'}
                 </div>
-                <div class="notice-details-row">
-                    <div class="notice-details-label">Country</div>
-                    <div class="notice-details-value">${notice.country || 'N/A'}</div>
+                <div class="mb-3">
+                    <strong>Country:</strong> ${notice.country || 'N/A'}
                 </div>
-                <div class="notice-details-row">
-                    <div class="notice-details-label">CPV Codes</div>
-                    <div class="notice-details-value">${notice.cpv_codes && notice.cpv_codes.length > 0 ? notice.cpv_codes.join(', ') : 'N/A'}</div>
+                <div class="mb-3">
+                    <strong>Type:</strong> ${notice.notice_type || 'N/A'}
                 </div>
-                <div class="notice-details-row">
-                    <div class="notice-details-label">Est. Value</div>
-                    <div class="notice-details-value">
-                        ${notice.estimated_value ? `€${formatNumber(notice.estimated_value)}` : 'N/A'}
-                    </div>
+                <div class="mb-3">
+                    <strong>CPV:</strong> ${notice.cpv_codes ? (Array.isArray(notice.cpv_codes) ? notice.cpv_codes.join(', ') : notice.cpv_codes) : 'N/A'}
                 </div>
-                ${notice.url ? `
-                <div class="notice-details-row">
-                    <div class="notice-details-label">View on TED</div>
-                    <div class="notice-details-value">
-                        <a href="${notice.url}" target="_blank" rel="noopener noreferrer">
-                            <i class="fas fa-external-link-alt"></i> Open on TED
-                        </a>
-                    </div>
-                </div>
-                ` : ''}
-                ${notice.content_html ? `
-                <div class="notice-details-row" style="border: none; padding-top: 1rem; margin-top: 1rem; border-top: 2px solid #dee2e6;">
-                    <div class="notice-details-label">Full Content</div>
-                </div>
-                <div style="font-size: 0.85rem; color: #666; max-height: 300px; overflow-y: auto; padding: 1rem; background-color: #f8f9fa; border-radius: 0.25rem; margin-top: 0.5rem;">
-                    ${notice.content_html}
-                </div>
-                ` : ''}
+                ${notice.url ? `<a href="${notice.url}" target="_blank" class="btn btn-primary">View on TED</a>` : ''}
             </div>
         `;
 
-        document.getElementById('modal-title').textContent = notice.publication_number;
+        if (modalTitle) modalTitle.textContent = notice.publication_number;
         modalBody.innerHTML = html;
 
     } catch (error) {
-        console.error('Error fetching notice details:', error);
-        document.getElementById('modal-body').innerHTML = `
-            <div class="alert alert-danger">
-                <i class="fas fa-exclamation-circle"></i>
-                Failed to load notice details: ${error.message}
-            </div>
-        `;
+        console.error('Error:', error);
+        const modalBody = document.getElementById('modal-body');
+        if (modalBody) {
+            modalBody.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
+        }
     }
-}
-
-// Reset search
-function resetSearch() {
-    currentSearchData = null;
-    currentPage = 1;
-    currentSearchQuery = null;
-    emptyState.style.display = 'block';
-    resultsContainer.style.display = 'none';
-    errorAlert.style.display = 'none';
-    searchStatus.style.display = 'none';
-    setDefaultDates();
 }
 
 // Show error
 function showError(message) {
-    errorAlert.style.display = 'block';
-    document.getElementById('error-text').textContent = message;
+    if (errorAlert) {
+        errorAlert.style.display = 'block';
+        const errorText = document.getElementById('error-text');
+        if (errorText) errorText.textContent = message;
+    }
     console.error(message);
 }
 
-// Utility functions
-function formatDate(dateString) {
-    if (!dateString) return '-';
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-}
-
-function formatNumber(num) {
-    if (!num) return '0';
-    return num.toLocaleString('en-US', { maximumFractionDigits: 0 });
-}
-
+// Utility
 function truncate(str, length) {
     if (!str) return '-';
     return str.length > length ? str.substring(0, length) + '...' : str;
