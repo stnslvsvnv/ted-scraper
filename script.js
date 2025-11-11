@@ -1,10 +1,13 @@
 /* TED Scraper Frontend JavaScript */
 
-// Configuration
+// Configuration - АВТОМАТИЧЕСКИ ОПРЕДЕЛЯЕМ АДРЕС БЭКЕНДА
 const CONFIG = {
-    BACKEND_BASE_URL: 'http://localhost:8847',
+    // Используем текущий протокол, хост и порт
+    BACKEND_BASE_URL: window.location.origin,
     REQUEST_TIMEOUT: 30000
 };
+
+console.log('Backend URL:', CONFIG.BACKEND_BASE_URL);
 
 // State
 let currentSearchData = null;
@@ -185,7 +188,7 @@ async function performSearch() {
 
         if (!response.ok) {
             const errorData = await response.json();
-            throw new Error(errorData.detail || 'Search failed');
+            throw new Error(errorData.detail || `HTTP ${response.status}`);
         }
 
         const data = await response.json();
@@ -479,24 +482,6 @@ function formatNumber(num) {
 function truncate(str, length) {
     if (!str) return '-';
     return str.length > length ? str.substring(0, length) + '...' : str;
-}
-
-// Fetch with timeout
-async function fetchWithTimeout(url, options = {}, timeout = CONFIG.REQUEST_TIMEOUT) {
-    const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), timeout);
-    
-    try {
-        const response = await fetch(url, {
-            ...options,
-            signal: controller.signal
-        });
-        clearTimeout(id);
-        return response;
-    } catch (error) {
-        clearTimeout(id);
-        throw error;
-    }
 }
 
 console.log('TED Scraper Frontend script loaded');
