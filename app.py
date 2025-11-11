@@ -20,7 +20,6 @@ import os
 # Конфигурация
 # ============================================================================
 
-# ОБНОВЛЕННЫЙ ENDPOINT (новый API)
 TED_API_BASE_URL = "https://api.ted.europa.eu/v3/notices/search"
 LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
@@ -171,24 +170,24 @@ def build_ted_query(filters: SearchFilters) -> str:
     query_parts = []
     
     if filters.full_text:
-        query_parts.append(f"({filters.full_text})")
+        query_parts.append(filters.full_text)
     
     if filters.cpv_codes:
-        cpv_query = " OR ".join([f"cpv-code = {code}" for code in filters.cpv_codes])
-        query_parts.append(f"({cpv_query})")
+        cpv_query = " OR ".join([f"({code})" for code in filters.cpv_codes])
+        query_parts.append(f"cpv-code:{cpv_query}")
     
     if filters.buyer_countries:
-        country_query = " OR ".join([f"place-of-performance IN ({country})" for country in filters.buyer_countries])
-        query_parts.append(f"({country_query})")
+        country_query = " OR ".join([f"({country})" for country in filters.buyer_countries])
+        query_parts.append(f"place-of-performance:{country_query}")
     
     if filters.publication_date_from:
-        query_parts.append(f"publication-date >= {filters.publication_date_from}")
+        query_parts.append(f"publication-date:[{filters.publication_date_from}]")
     
     if filters.publication_date_to:
-        query_parts.append(f"publication-date <= {filters.publication_date_to}")
+        query_parts.append(f"publication-date:[*+TO+{filters.publication_date_to}]")
     
     if not query_parts:
-        # Если никаких фильтров - используем простой запрос для получения последних тендеров
+        # Если никаких фильтров - используем простой запрос
         query_parts.append("*")
     
     query = " AND ".join(query_parts)
@@ -207,14 +206,26 @@ def parse_ted_response(data: Dict[str, Any]) -> List[NoticeItem]:
         try:
             publication_number = notice.get("publication-number", "N/A")
             
+            # Получаем значения, обрабатывая разные форматы данных
+            title = notice.get("notice-title") or notice.get("notice-title", {}).get("value", "N/A")
+            buyer = notice.get("buyer-name") or notice.get("buyer-name", {}).get("value", "N/A")
+            country = notice.get("place-of-performance") or notice.get("place-of-performance", {}).get("value", "N/A")
+            
+            # CPV коды могут быть строкой или списком
+            cpv = notice.get("cpv-code", [])
+            if isinstance(cpv, str):
+                cpv = [cpv]
+            elif not isinstance(cpv, list):
+                cpv = []
+            
             notice_item = NoticeItem(
                 publication_number=publication_number,
                 publication_date=notice.get("publication-date"),
                 notice_type=notice.get("notice-type"),
-                buyer_name=notice.get("buyer-name"),
-                title=notice.get("notice-title"),
-                cpv_codes=notice.get("cpv-code") if isinstance(notice.get("cpv-code"), list) else ([notice.get("cpv-code")] if notice.get("cpv-code") else None),
-                country=notice.get("place-of-performance"),
+                buyer_name=buyer,
+                title=title,
+                cpv_codes=cpv if cpv else None,
+                country=country,
                 url=f"https://ted.europa.eu/en/notice/{publication_number}" if publication_number != "N/A" else None,
             )
             
@@ -234,31 +245,31 @@ async def call_ted_api(
     scope: str = "ACTIVE",
     fields: List[str] = None
 ) -> Dict[str, Any]:
-    """Call TED Search API (v3 - new endpoint)"""
+    """Call TED Search API v3 - usando URL query parameters (NO JSON body)"""
     
     if fields is None:
         fields = ["publication-number", "notice-title", "buyer-name", "publication-date", "notice-type", "cpv-code", "place-of-performance"]
     
-    # НОВЫЙ API требует "query" и "limit" (не "pageSize")
-    request_body = {
-        "query": query,  # ← Используем "query" для нового API
-        "fields": fields,
+    # ВАЖНО: TED API v3 требует query parameters в URL, не JSON body!
+    params = {
+        "query": query,  # ← Query string
+        "fields": ",".join(fields),  # ← Comma-separated fields
         "page": page,
-        "limit": page_size,  # ← Используем "limit" вместо "pageSize"
+        "limit": page_size,
         "scope": scope,
-        "paginationMode": "PAGE_NUMBER"
     }
     
     logger.info(f"Calling TED API v3 with query: {query[:100]}...")
     logger.info(f"Endpoint: {TED_API_BASE_URL}")
-    logger.debug(f"Request body: {json.dumps(request_body)}")
+    logger.debug(f"Query parameters: {params}")
     
     try:
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-            response = await client.post(
+            # МЕТОД: GET с query parameters (не POST с JSON body)
+            response = await client.get(
                 TED_API_BASE_URL,
-                json=request_body,
-                headers={"Content-Type": "application/json"}
+                params=params,
+                headers={"Accept": "application/json"}
             )
             
             logger.info(f"API Response Status: {response.status_code}")
@@ -274,6 +285,7 @@ async def call_ted_api(
             
     except httpx.HTTPError as e:
         logger.error(f"TED API HTTP error: {e}")
+        logger.error(f"Response text: {e.response.text if hasattr(e, 'response') else 'N/A'}")
         raise HTTPException(status_code=502, detail=f"TED API error: {str(e)}")
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
@@ -403,7 +415,7 @@ async def get_task_status(task_id: str):
 async def get_notice_details(notice_id: str):
     """Get full notice details"""
     
-    query = f"publication-number = {notice_id}"
+    query = f"publication-number:{notice_id}"
     
     ted_response = await call_ted_api(
         query=query,
