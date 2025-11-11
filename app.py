@@ -3,9 +3,10 @@ TED Scraper - Combined Frontend + Backend Application
 Ports: 8846 (Frontend), 8847 (Backend API)
 """
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, StaticFiles
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import httpx
@@ -149,7 +150,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static files - create empty directory if needed
+# Mount static files
 if os.path.exists(static_dir):
     try:
         app.mount("/static", StaticFiles(directory=static_dir), name="static")
@@ -341,7 +342,7 @@ async def health_check():
 async def search(request: SearchRequest):
     """Search for tenders"""
     
-    logger.info(f"Search request: {request.filters}")
+    logger.info(f"Search request received")
     
     # Build query
     query = build_ted_query(request.filters)
