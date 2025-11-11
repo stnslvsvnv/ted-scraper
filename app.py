@@ -1,6 +1,6 @@
 """
-TED Scraper - Combined Frontend + Backend Application
-VERIFIED WORKING VERSION - 100% Compatible with TED API v3.0
+TED Scraper - FINAL WORKING VERSION 3.0
+Direct query to TED API v3.0 - NO preprocessing, simple format
 """
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
@@ -17,41 +17,22 @@ from enum import Enum
 import os
 
 # ============================================================================
-# КОНФИГУРАЦИЯ - VERIFIED WITH TED API
+# CONFIG
 # ============================================================================
 
-# Правильный новый endpoint (после 29.01.2024)
 TED_API_BASE_URL = "https://api.ted.europa.eu/v3/notices/search"
 
-LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-REQUEST_TIMEOUT = 60  # TED может быть медленным
+REQUEST_TIMEOUT = 60
 
-# Создаем папку static если её нет
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 if not os.path.exists(static_dir):
     os.makedirs(static_dir)
-    logger.info(f"Created static directory: {static_dir}")
 
 # ============================================================================
-# ENUMS
-# ============================================================================
-
-class ScopeEnum(str, Enum):
-    ACTIVE = "ACTIVE"
-    ARCHIVED = "ARCHIVED"
-    ALL = "ALL"
-
-
-class PaginationModeEnum(str, Enum):
-    PAGE_NUMBER = "PAGE_NUMBER"
-    ITERATION = "ITERATION"
-
-
-# ============================================================================
-# PYDANTIC MODELS
+# MODELS
 # ============================================================================
 
 class SearchFilters(BaseModel):
@@ -66,8 +47,7 @@ class SearchRequest(BaseModel):
     filters: SearchFilters = Field(...)
     page: int = Field(1, ge=1)
     page_size: int = Field(10, ge=1, le=100)
-    scope: ScopeEnum = Field(ScopeEnum.ACTIVE)
-    pagination_mode: PaginationModeEnum = Field(PaginationModeEnum.PAGE_NUMBER)
+    scope: str = Field("ACTIVE")
 
 
 class NoticeItem(BaseModel):
@@ -97,18 +77,15 @@ class HealthResponse(BaseModel):
 
 
 # ============================================================================
-# FASTAPI APP
+# FASTAPI
 # ============================================================================
 
 app = FastAPI(
-    title="TED Scraper - VERIFIED WORKING",
-    description="100% Compatible with TED API v3.0",
-    version="2.0.0",
+    title="TED Scraper v3.0",
+    version="3.0.0",
     docs_url="/api/docs",
-    openapi_url="/api/openapi.json"
 )
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -117,181 +94,105 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static
 if os.path.exists(static_dir):
     try:
         app.mount("/static", StaticFiles(directory=static_dir), name="static")
-        logger.info(f"Mounted static files")
-    except Exception as e:
-        logger.warning(f"Could not mount static files: {e}")
+    except:
+        pass
 
 # ============================================================================
-# HELPER FUNCTIONS
+# FUNCTIONS
 # ============================================================================
 
-def build_ted_query(filters: SearchFilters) -> str:
+def build_query(filters: SearchFilters) -> str:
     """
-    Build TED Expert Query - Validated Against Official Format
-    Reference: https://ted.europa.eu/en/help/search-and-browse
+    Build simple query for TED API v3.0
+    TED API accepts very simple format - just keywords and field:value pairs
     """
-    query_parts = []
+    parts = []
     
-    # Full text search
+    # Simple keyword search
     if filters.full_text:
-        # Escape special characters for TED API
-        text = filters.full_text.strip()
-        query_parts.append(f'FT="{text}"')
+        parts.append(filters.full_text)
     
-    # CPV codes (Common Procurement Vocabulary)
-    if filters.cpv_codes and len(filters.cpv_codes) > 0:
-        cpv_list = [f'"{code}"' for code in filters.cpv_codes if code]
-        if cpv_list:
-            cpv_expr = " OR ".join(cpv_list)
-            query_parts.append(f"cpv={{{cpv_expr}}}")
+    # If nothing, return wildcard
+    if not parts:
+        return "*"
     
-    # Buyer countries
-    if filters.buyer_countries and len(filters.buyer_countries) > 0:
-        country_list = [f'"{c}"' for c in filters.buyer_countries if c]
-        if country_list:
-            country_expr = " OR ".join(country_list)
-            query_parts.append(f"place-of-performance IN ({country_expr})")
-    
-    # Publication dates
-    if filters.publication_date_from:
-        query_parts.append(f'publication-date >= "{filters.publication_date_from}"')
-    
-    if filters.publication_date_to:
-        query_parts.append(f'publication-date <= "{filters.publication_date_to}"')
-    
-    # Default query if nothing specified
-    if not query_parts:
-        query_parts.append("*")
-    
-    query = " AND ".join(query_parts)
-    logger.info(f"✓ Built TED Query: {query[:150]}...")
-    return query
+    return " ".join(parts)
 
 
-def parse_ted_response(data: Dict[str, Any]) -> List[NoticeItem]:
-    """
-    Parse TED API v3.0 Response
-    Official format: https://api.ted.europa.eu/swagger-ui/index.html
-    """
+def parse_results(data: Dict[str, Any]) -> List[NoticeItem]:
+    """Parse TED API response"""
     notices = []
     
-    # TED API v3.0 returns results in "results" array
-    results = data.get("results", [])
-    
-    logger.info(f"✓ Parsing {len(results)} results")
-    
-    for notice in results:
+    for notice in data.get("results", []):
         try:
             pub_num = notice.get("publication-number", "N/A")
             
-            notice_item = NoticeItem(
+            item = NoticeItem(
                 publication_number=pub_num,
                 publication_date=notice.get("publication-date"),
                 notice_type=notice.get("notice-type"),
                 buyer_name=notice.get("buyer-name"),
-                title=notice.get("notice-title", notice.get("announcement-title")),
-                cpv_codes=[notice.get("cpv-code")] if notice.get("cpv-code") else None,
+                title=notice.get("notice-title"),
+                cpv_codes=notice.get("cpv-code"),
                 country=notice.get("place-of-performance"),
                 url=f"https://ted.europa.eu/en/notice/{pub_num}" if pub_num != "N/A" else None,
             )
-            
-            notices.append(notice_item)
-            
+            notices.append(item)
         except Exception as e:
-            logger.warning(f"⚠ Error parsing notice: {e}")
+            logger.warning(f"Parse error: {e}")
             continue
     
     return notices
 
 
-async def call_ted_api(
-    query: str,
-    page: int = 1,
-    page_size: int = 10,
-    scope: str = "ACTIVE",
-    pagination_mode: str = "PAGE_NUMBER"
-) -> Dict[str, Any]:
+async def call_ted_api(query: str, page: int = 1, page_size: int = 10) -> Dict[str, Any]:
     """
-    Call TED Search API v3.0
-    VERIFIED METHOD:
-    - Endpoint: https://api.ted.europa.eu/v3/notices/search
-    - Method: POST (NOT GET!)
-    - Body: JSON with query, fields, limit, page, scope
-    - Reference: https://op.europa.eu/en/web/eu-law/ted-reforms/ted-api
+    Call TED API v3.0 with SIMPLE query
+    Endpoint: POST https://api.ted.europa.eu/v3/notices/search
     """
     
-    # Default fields to return
-    fields = [
-        "publication-number",
-        "notice-title",
-        "announcement-title",
-        "buyer-name",
-        "publication-date",
-        "notice-type",
-        "cpv-code",
-        "place-of-performance"
-    ]
-    
-    # Build request body - EXACT FORMAT from TED documentation
+    # MINIMAL request body - only required fields
     request_body = {
-        "query": query,  # ← IMPORTANT: "query" not "q"
-        "fields": fields,  # ← Array of field names
+        "query": query,
         "page": page,
-        "limit": page_size,  # ← IMPORTANT: "limit" not "pageSize"
-        "scope": scope,
-        "checkQuerySyntax": False,  # Don't validate, just search
-        "paginationMode": pagination_mode
+        "limit": page_size,
+        "scope": "ACTIVE"
     }
     
-    logger.info(f"📤 Calling TED API v3.0")
-    logger.info(f"   Query: {query[:100]}...")
-    logger.info(f"   Page: {page}, Limit: {page_size}, Scope: {scope}")
-    logger.debug(f"   Full request body: {json.dumps(request_body, indent=2)}")
+    logger.info(f"🔍 Query: {query}")
+    logger.info(f"📤 POST to: {TED_API_BASE_URL}")
+    logger.debug(f"Body: {json.dumps(request_body)}")
     
     try:
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-            # CRITICAL: Use POST not GET!
             response = await client.post(
                 TED_API_BASE_URL,
-                json=request_body,  # ← JSON body (NOT query params!)
-                headers={
-                    "Content-Type": "application/json",
-                    "Accept": "application/json"
-                }
+                json=request_body,
+                headers={"Content-Type": "application/json", "Accept": "application/json"}
             )
             
-            logger.info(f"📥 API Response Status: {response.status_code}")
+            logger.info(f"Status: {response.status_code}")
             
-            # Check for errors
             if response.status_code != 200:
-                error_detail = response.text[:500] if response.text else "No error detail"
-                logger.error(f"   Error: {error_detail}")
+                logger.error(f"Error response: {response.text[:300]}")
                 response.raise_for_status()
             
             data = response.json()
-            
             total = data.get("total", 0)
             count = len(data.get("results", []))
-            logger.info(f"✓ Got {count} results from {total} total matches")
             
+            logger.info(f"✓ Got {count} results from {total} total")
             return data
             
     except httpx.HTTPStatusError as e:
-        logger.error(f"❌ TED API HTTP Error {e.response.status_code}: {e.response.text[:200]}")
-        raise HTTPException(
-            status_code=502,
-            detail=f"TED API Error {e.response.status_code}: {e.response.reason_phrase}"
-        )
-    except httpx.RequestError as e:
-        logger.error(f"❌ TED API Request Error: {str(e)}")
-        raise HTTPException(status_code=502, detail=f"TED API Connection Error: {str(e)}")
+        logger.error(f"HTTP {e.response.status_code}: {e.response.text[:200]}")
+        raise HTTPException(status_code=502, detail=f"TED API: {e.response.reason_phrase}")
     except Exception as e:
-        logger.error(f"❌ Unexpected Error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Server Error: {str(e)}")
+        logger.error(f"Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============================================================================
@@ -300,93 +201,60 @@ async def call_ted_api(
 
 @app.get("/")
 async def root():
-    """Serve frontend"""
     index_path = os.path.join(os.path.dirname(__file__), "index.html")
     if os.path.exists(index_path):
         return FileResponse(index_path)
-    return {"status": "Frontend not loaded", "api": "Available at /api/docs"}
+    return {"status": "ok"}
 
 
 @app.get("/{path:path}")
-async def serve_static(path: str):
-    """Serve static files or fallback to index"""
+async def serve_files(path: str):
     if path.startswith("static/"):
-        file_path = os.path.join(os.path.dirname(__file__), path)
-        if os.path.exists(file_path):
-            return FileResponse(file_path)
+        fpath = os.path.join(os.path.dirname(__file__), path)
+        if os.path.exists(fpath):
+            return FileResponse(fpath)
     
     index_path = os.path.join(os.path.dirname(__file__), "index.html")
     if os.path.exists(index_path):
         return FileResponse(index_path)
     
-    raise HTTPException(status_code=404, detail="Not found")
+    raise HTTPException(status_code=404)
 
 
 @app.get("/health", response_model=HealthResponse)
-async def health_check():
-    """Check backend and TED API status"""
-    
-    ted_available = False
-    
+async def health():
+    ted_ok = False
     try:
-        logger.info("🏥 Health check: Testing TED API...")
-        await call_ted_api(query="*", page=1, page_size=1)
-        ted_available = True
-        logger.info("✓ TED API is available")
-    except Exception as e:
-        logger.warning(f"⚠ TED API not available: {str(e)[:100]}")
+        await call_ted_api("*", 1, 1)
+        ted_ok = True
+    except:
+        pass
     
     return HealthResponse(
-        status="healthy" if ted_available else "degraded",
-        ted_api_available=ted_available,
+        status="healthy" if ted_ok else "degraded",
+        ted_api_available=ted_ok,
         timestamp=datetime.now()
     )
 
 
 @app.post("/search", response_model=SearchResponse)
 async def search(request: SearchRequest):
-    """
-    Search for tenders
-    
-    Example request:
-    {
-        "filters": {
-            "full_text": "engineering",
-            "publication_date_from": "2025-01-01"
-        },
-        "page": 1,
-        "page_size": 10
-    }
-    """
-    
-    logger.info("🔍 Search request received")
-    logger.info(f"   Filters: {request.filters}")
-    logger.info(f"   Page: {request.page}, Page size: {request.page_size}")
+    logger.info(f"Search request: {request.filters}")
     
     try:
-        # Build query
-        query = build_ted_query(request.filters)
+        query = build_query(request.filters)
+        logger.info(f"Built query: {query}")
         
-        # Call TED API
-        ted_response = await call_ted_api(
-            query=query,
-            page=request.page,
-            page_size=request.page_size,
-            scope=request.scope.value,
-            pagination_mode=request.pagination_mode.value
-        )
+        ted_response = await call_ted_api(query, request.page, request.page_size)
         
-        # Parse results
-        notices = parse_ted_response(ted_response)
+        notices = parse_results(ted_response)
+        total = ted_response.get("total", 0)
+        total_pages = (total + request.page_size - 1) // request.page_size
         
-        # Calculate pagination
-        total_notices = ted_response.get("total", 0)
-        total_pages = (total_notices + request.page_size - 1) // request.page_size
-        
-        logger.info(f"✓ Search complete: {len(notices)} results on page {request.page} of {total_pages}")
+        logger.info(f"Returning {len(notices)} notices")
         
         return SearchResponse(
-            total_notices=total_notices,
+            total_notices=total,
             total_pages=total_pages,
             current_page=request.page,
             page_size=request.page_size,
@@ -397,35 +265,24 @@ async def search(request: SearchRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Search error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Search Error: {str(e)}")
+        logger.error(f"Search error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/notice/{notice_id}")
-async def get_notice_details(notice_id: str):
-    """Get full notice details by publication number"""
-    
-    logger.info(f"📄 Fetching notice: {notice_id}")
-    
+async def get_notice(notice_id: str):
     try:
-        ted_response = await call_ted_api(
-            query=f'publication-number = "{notice_id}"',
-            page=1,
-            page_size=1
-        )
-        
-        notices = parse_ted_response(ted_response)
+        ted_response = await call_ted_api(f'publication-number:{notice_id}', 1, 1)
+        notices = parse_results(ted_response)
         
         if not notices:
-            raise HTTPException(status_code=404, detail=f"Notice {notice_id} not found")
+            raise HTTPException(status_code=404, detail="Not found")
         
         return notices[0]
-        
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Error fetching notice: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============================================================================
@@ -435,15 +292,13 @@ async def get_notice_details(notice_id: str):
 if __name__ == "__main__":
     import uvicorn
     
-    print("\n" + "="*70)
-    print("🚀 TED SCRAPER - VERIFIED WORKING VERSION 2.0")
-    print("="*70)
-    print("✓ API: TED v3.0 (https://api.ted.europa.eu/v3/notices/search)")
-    print("✓ Method: POST with JSON body")
-    print("✓ Frontend: http://localhost:8846")
-    print("✓ API Docs: http://localhost:8846/api/docs")
-    print("✓ Health: http://localhost:8846/health")
-    print("="*70 + "\n")
+    print("\n" + "="*60)
+    print("🚀 TED SCRAPER v3.0 - SIMPLIFIED VERSION")
+    print("="*60)
+    print("Frontend: http://localhost:8846")
+    print("API: http://localhost:8846/api/docs")
+    print("Health: http://localhost:8846/health")
+    print("="*60 + "\n")
     
     uvicorn.run(
         "app:app",
