@@ -1,6 +1,6 @@
 """
-TED Scraper - ULTRA MINIMAL WORKING VERSION
-Direct test - no complex logic
+TED Scraper - FINAL WORKING VERSION 5.0
+WITH REQUIRED FIELDS FIX
 """
 
 from fastapi import FastAPI, HTTPException
@@ -69,8 +69,8 @@ class HealthResponse(BaseModel):
 # ============================================================================
 
 app = FastAPI(
-    title="TED Scraper - Ultra Minimal",
-    version="4.0.0",
+    title="TED Scraper - v5.0 WORKING",
+    version="5.0.0",
     docs_url="/api/docs",
 )
 
@@ -98,22 +98,36 @@ except:
 
 async def call_ted_api(query_text: str, page: int = 1, limit: int = 10) -> Dict[str, Any]:
     """
-    Call TED API v3.0
-    ULTRA SIMPLE - no complex logic
+    Call TED API v3.0 - FIXED VERSION WITH REQUIRED FIELDS
+    
+    IMPORTANT: TED API requires "fields" parameter to be non-empty!
     """
     
-    # Simple request body
+    # REQUIRED FIELDS - MUST NOT BE EMPTY!
+    fields = [
+        "publication-number",
+        "notice-title",
+        "buyer-name",
+        "publication-date",
+        "notice-type",
+        "cpv-code",
+        "place-of-performance"
+    ]
+    
+    # Request body with REQUIRED fields parameter
     payload = {
         "query": query_text,
         "page": page,
         "limit": limit,
-        "scope": "ACTIVE"
+        "scope": "ACTIVE",
+        "fields": fields  # ← REQUIRED! MUST NOT BE EMPTY!
     }
     
     logger.info(f"🚀 TED API Call")
     logger.info(f"   Endpoint: https://api.ted.europa.eu/v3/notices/search")
     logger.info(f"   Query: {query_text}")
     logger.info(f"   Page: {page}, Limit: {limit}")
+    logger.info(f"   Fields: {len(fields)} fields")
     logger.debug(f"   Payload: {payload}")
     
     try:
@@ -130,7 +144,6 @@ async def call_ted_api(query_text: str, page: int = 1, limit: int = 10) -> Dict[
             )
             
             logger.info(f"   Response Status: {response.status_code}")
-            logger.debug(f"   Response Headers: {dict(response.headers)}")
             
             if response.status_code != 200:
                 logger.error(f"   Error Body: {response.text[:500]}")
@@ -302,7 +315,7 @@ if __name__ == "__main__":
     import uvicorn
     
     print("\n" + "="*70)
-    print("🚀 TED SCRAPER v4.0 - ULTRA MINIMAL")
+    print("🚀 TED SCRAPER v5.0 - WORKING VERSION")
     print("="*70)
     print("Frontend: http://localhost:8846")
     print("API: http://localhost:8846/api/docs")
