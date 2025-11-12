@@ -1,5 +1,5 @@
 """
-TED Scraper Backend - Фикс: no quotes for dates/country, fallback to * if 0
+TED Scraper Backend - Фикс fallback: *:* for match all, tight date op (no space after >=/<=)
 """
 
 from fastapi import FastAPI, HTTPException
@@ -75,29 +75,29 @@ async def search_notices(request: SearchRequest):
             if request.filters.text:
                 text = request.filters.text.strip()
                 if ' ' in text:
-                    ft_term = f'FT~"{text}"'  # Quotes only for phrase
+                    ft_term = f'FT~"{text}"'
                 else:
-                    ft_term = f'FT~{text}'  # No quotes for word
+                    ft_term = f'FT~{text}'
                 query_terms.append(f'({ft_term})')
             
             if request.filters.country:
-                # No quotes for code
                 query_terms.append(f'(country-of-buyer={request.filters.country.upper()})')
             
             if request.filters.publication_date_from:
                 from_date = request.filters.publication_date_from.replace("-", "")
-                query_terms.append(f'(publication-date >= {from_date})')
+                # No space after >= for tight token
+                query_terms.append(f'(publication-date>={from_date})')
                 has_date_filter = True
             
             if request.filters.publication_date_to:
                 to_date = request.filters.publication_date_to.replace("-", "")
-                query_terms.append(f'(publication-date <= {to_date})')
+                query_terms.append(f'(publication-date<={to_date})')
                 has_date_filter = True
         
         if query_terms:
             expert_query = " AND ".join(query_terms)
         else:
-            expert_query = "*"
+            expert_query = "*:*"  # Default match all
         
         logger.info(f"POST /search: query={expert_query}, page={request.page}, limit={request.limit}")
         
@@ -113,27 +113,40 @@ async def search_notices(request: SearchRequest):
             response = await client.post(TED_API_URL, json=payload, timeout=120.0)
             data = response.json()
             total = data.get("total", 0)
-            if total == 0:
-                logger.info("Total 0 with LATEST; retry ALL")
+            
+            # Fallback 1: LATEST 0 -> ALL
+            if total == 0 and payload["scope"] == "LATEST":
+                logger.info("LATEST 0; retry ALL")
                 payload["scope"] = "ALL"
                 response = await client.post(TED_API_URL, json=payload, timeout=120.0)
                 data = response.json()
                 total = data.get("total", 0)
-                logger.info(f"ALL scope total: {total}")
+                logger.info(f"ALL total: {total}")
+            
+            # Fallback 2: Dates 0 -> remove dates, keep other + "*:*" if empty
             if total == 0 and has_date_filter:
-                logger.info("Dates filter gave 0; fallback to * with other filters")
-                # Retry without date terms (keep text/country)
+                logger.info("Dates 0; fallback without dates")
                 non_date_terms = [t for t in query_terms if 'publication-date' not in t]
                 if non_date_terms:
                     expert_query_no_date = " AND ".join(non_date_terms)
                 else:
-                    expert_query_no_date = "*"
+                    expert_query_no_date = "*:*"
                 payload["query"] = expert_query_no_date
                 payload["scope"] = "ALL"
                 response = await client.post(TED_API_URL, json=payload, timeout=120.0)
                 data = response.json()
                 total = data.get("total", 0)
-                logger.info(f"Fallback * total: {total}")
+                logger.info(f"Fallback without dates total: {total}")
+            
+            # Fallback 3: Still 0 -> pure "*:*"
+            if total == 0:
+                logger.info("Still 0; pure *: *")
+                payload["query"] = "*:*"
+                payload["scope"] = "ALL"
+                response = await client.post(TED_API_URL, json=payload, timeout=120.0)
+                data = response.json()
+                total = data.get("total", 0)
+                logger.info(f"Pure *:* total: {total}")
         
         logger.info(f"TED Response: {response.status_code}")
         
