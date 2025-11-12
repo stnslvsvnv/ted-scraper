@@ -1,5 +1,5 @@
 """
-TED Scraper Backend - Key support + test fallback "buyer-country = EU"
+TED Scraper Backend - Fixed version with correct field names and query syntax
 """
 
 from fastapi import FastAPI, HTTPException
@@ -27,6 +27,7 @@ app.add_middleware(
 )
 
 TED_API_URL = "https://api.ted.europa.eu/v3/notices/search"
+
 SUPPORTED_FIELDS = [
     "publication-number",
     "publication-date",
@@ -80,14 +81,17 @@ async def search_notices(request: SearchRequest):
     try:
         query_terms = []
         has_date_filter = False
+        
         if request.filters:
+            # ИСПРАВЛЕНО: добавлены кавычки вокруг текста для оператора ~
             if request.filters.text:
                 text = request.filters.text.strip()
-                ft_term = f'(notice-title ~ {text} OR buyer-name ~ {text})'
+                ft_term = f'(notice-title ~ "{text}" OR buyer-name ~ "{text}")'
                 query_terms.append(ft_term)
             
+            # ИСПРАВЛЕНО: изменено с country-of-buyer на buyer-country
             if request.filters.country:
-                query_terms.append(f'(country-of-buyer = {request.filters.country.upper()})')
+                query_terms.append(f'(buyer-country = {request.filters.country.upper()})')
             
             if request.filters.publication_date_from:
                 from_date = request.filters.publication_date_from.replace("-", "")
@@ -101,14 +105,11 @@ async def search_notices(request: SearchRequest):
                     query_terms.append(f'(publication-date <= {to_date})')
                     has_date_filter = True
         
-        # If no terms, use historical or test
+        # Если нет фильтров, используем широкий исторический запрос
         if not query_terms:
             expert_query = get_historical_broad()
         else:
             expert_query = " AND ".join(query_terms)
-            # Add historical if dates only (broaden)
-            if has_date_filter and not request.filters.text and not request.filters.country:
-                expert_query = f"{get_historical_broad()} AND {expert_query}"
         
         logger.info(f"POST /search: query={expert_query}, page={request.page}, limit={request.limit}")
         
@@ -116,53 +117,51 @@ async def search_notices(request: SearchRequest):
             "query": expert_query,
             "page": max(1, request.page),
             "limit": min(100, max(1, request.limit)),
-            "scope": "LATEST",
+            "scope": "ALL",  # ИЗМЕНЕНО: используем ALL для большего охвата
             "fields": SUPPORTED_FIELDS
         }
+        
         if API_KEY:
-            payload["apiKey"] = API_KEY  # Add key for full access
+            payload["apiKey"] = API_KEY
         
         async with httpx.AsyncClient() as client:
             response = await client.post(TED_API_URL, json=payload, timeout=120.0)
+            
+            if response.status_code != 200:
+                error_detail = response.json().get("message", response.text[:200]) if response.content else "No response"
+                logger.error(f"TED Error ({response.status_code}): {error_detail}")
+                raise HTTPException(status_code=response.status_code, detail=f"TED API error: {error_detail}")
+            
             data = response.json()
             total = data.get("total", 0)
-            logger.info(f"Initial total: {total} lots")
+            logger.info(f"Total results: {total} notices")
             
-            if total == 0:
-                logger.info("Initial 0; retry ALL")
-                payload["scope"] = "ALL"
-                response = await client.post(TED_API_URL, json=payload, timeout=120.0)
-                data = response.json()
-                total = data.get("total", 0)
-                logger.info(f"ALL total: {total} lots")
-            
-            if total == 0:
-                logger.info("Still 0; test fallback EU")
+            # Если получили 0 результатов, попробуем тестовый запрос для диагностики
+            if total == 0 and query_terms:
+                logger.info("Got 0 results; trying test query for diagnosis")
                 payload["query"] = get_test_query()
-                payload["scope"] = "ALL"
                 response = await client.post(TED_API_URL, json=payload, timeout=120.0)
                 data = response.json()
-                total = data.get("total", 0)
-                logger.info(f"Test EU total: {total} lots")
-        
-        if response.status_code != 200:
-            error_detail = response.json().get("message", response.text[:200]) if response.content else "No response"
-            logger.error(f"TED Error ({response.status_code}): {error_detail}")
-            raise HTTPException(status_code=response.status_code, detail=f"TED API error: {error_detail}")
-        
-        notices = []
-        for item in data.get("results", []):
-            notice = Notice(
-                publication_number=item.get("publication-number", "N/A"),
-                publication_date=item.get("publication-date"),
-                title=item.get("notice-title", "No title"),
-                buyer=item.get("buyer-name", "Unknown buyer"),
-                country=item.get("buyer-country", "Unknown")
-            )
-            notices.append(notice)
-        
-        logger.info(f"Returned {len(notices)} lots out of {total}")
-        return SearchResponse(total=total, notices=notices)
+                test_total = data.get("total", 0)
+                logger.info(f"Test query (buyer-country=EU) returned: {test_total} notices")
+                # Вернем пустой результат с оригинальным запросом
+                payload["query"] = expert_query
+                response = await client.post(TED_API_URL, json=payload, timeout=120.0)
+                data = response.json()
+            
+            notices = []
+            for item in data.get("results", []):
+                notice = Notice(
+                    publication_number=item.get("publication-number", "N/A"),
+                    publication_date=item.get("publication-date"),
+                    title=item.get("notice-title", "No title"),
+                    buyer=item.get("buyer-name", "Unknown buyer"),
+                    country=item.get("buyer-country", "Unknown")
+                )
+                notices.append(notice)
+            
+            logger.info(f"Returned {len(notices)} notices out of {total}")
+            return SearchResponse(total=total, notices=notices)
     
     except httpx.RequestError as e:
         logger.error(f"TED Connection: {e}")
