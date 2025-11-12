@@ -1,5 +1,5 @@
 """
-TED Scraper Backend - Фикс синтаксиса expert query: скобки для каждого условия
+TED Scraper Backend - Фикс syntax: скобки только для multi-term text
 """
 
 from fastapi import FastAPI, HTTPException
@@ -32,7 +32,7 @@ SUPPORTED_FIELDS = [
     "notice-title",
     "buyer-name",
     "buyer-country"
-]  # Валидные поля (без изменений)
+]
 
 class Filters(BaseModel):
     text: Optional[str] = None
@@ -72,18 +72,26 @@ async def search_notices(request: SearchRequest):
         query_parts = []
         if request.filters:
             if request.filters.text:
-                query_parts.append(f'({request.filters.text})')  # Уже в ()
+                text = request.filters.text.strip()
+                # Скобки только для фраз с пробелами или >1 слова
+                if ' ' in text or len(text.split()) > 1:
+                    query_parts.append(f'("{text}")')  # Фраза в ""
+                else:
+                    query_parts.append(text)  # Простое слово без ()
+            
             if request.filters.country:
-                # Оборачиваем страну в ()
-                query_parts.append(f'(country-of-buyer:{request.filters.country.upper()})')
+                # Без () для простого field:value
+                query_parts.append(f'country-of-buyer:{request.filters.country.upper()}')
+            
             if request.filters.publication_date_from:
-                from_date = request.filters.publication_date_from.replace("-", "")  # YYYYMMDD
-                # Оборачиваем дату в ()
-                query_parts.append(f'(publication-date>={from_date})')
+                from_date = request.filters.publication_date_from.replace("-", "")
+                # Без () для сравнения
+                query_parts.append(f'publication-date>={from_date}')
+            
             if request.filters.publication_date_to:
-                to_date = request.filters.publication_date_to.replace("-", "")  # YYYYMMDD
-                # Оборачиваем дату в ()
-                query_parts.append(f'(publication-date<={to_date})')
+                to_date = request.filters.publication_date_to.replace("-", "")
+                # Без () для сравнения
+                query_parts.append(f'publication-date<={to_date}')
         
         expert_query = " AND ".join(query_parts) if query_parts else "*"
         
@@ -140,7 +148,6 @@ async def search_notices(request: SearchRequest):
         logger.error(f"Search error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# Static files на /static
 app.mount("/static", StaticFiles(directory="."), name="static")
 
 if __name__ == "__main__":
