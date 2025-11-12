@@ -1,5 +1,5 @@
 """
-TED Scraper Backend - Fixed version with correct field names and query syntax
+TED Scraper Backend - Fixed version with correct scope parameter
 """
 
 from fastapi import FastAPI, HTTPException
@@ -36,7 +36,7 @@ SUPPORTED_FIELDS = [
     "buyer-country"
 ]
 
-API_KEY = os.getenv("TED_API_KEY", None)  # Set in env: export TED_API_KEY=your_key
+API_KEY = os.getenv("TED_API_KEY", None)
 
 class Filters(BaseModel):
     text: Optional[str] = None
@@ -74,22 +74,19 @@ def get_historical_broad():
     return "(publication-date >= 19930101)"
 
 def get_test_query():
-    return "buyer-country = EU"  # Known working, total>1M
+    return "buyer-country = EU"
 
 @app.post("/search")
 async def search_notices(request: SearchRequest):
     try:
         query_terms = []
-        has_date_filter = False
         
         if request.filters:
-            # ИСПРАВЛЕНО: добавлены кавычки вокруг текста для оператора ~
             if request.filters.text:
                 text = request.filters.text.strip()
                 ft_term = f'(notice-title ~ "{text}" OR buyer-name ~ "{text}")'
                 query_terms.append(ft_term)
             
-            # ИСПРАВЛЕНО: изменено с country-of-buyer на buyer-country
             if request.filters.country:
                 query_terms.append(f'(buyer-country = {request.filters.country.upper()})')
             
@@ -97,15 +94,12 @@ async def search_notices(request: SearchRequest):
                 from_date = request.filters.publication_date_from.replace("-", "")
                 if from_date:
                     query_terms.append(f'(publication-date >= {from_date})')
-                    has_date_filter = True
             
             if request.filters.publication_date_to:
                 to_date = request.filters.publication_date_to.replace("-", "")
                 if to_date:
                     query_terms.append(f'(publication-date <= {to_date})')
-                    has_date_filter = True
         
-        # Если нет фильтров, используем широкий исторический запрос
         if not query_terms:
             expert_query = get_historical_broad()
         else:
@@ -113,19 +107,24 @@ async def search_notices(request: SearchRequest):
         
         logger.info(f"POST /search: query={expert_query}, page={request.page}, limit={request.limit}")
         
+        # КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: убран параметр scope полностью
         payload = {
             "query": expert_query,
             "page": max(1, request.page),
             "limit": min(100, max(1, request.limit)),
-            "scope": "ALL",  # ИЗМЕНЕНО: используем ALL для большего охвата
             "fields": SUPPORTED_FIELDS
         }
         
         if API_KEY:
             payload["apiKey"] = API_KEY
         
+        logger.info(f"Payload: {payload}")
+        
         async with httpx.AsyncClient() as client:
             response = await client.post(TED_API_URL, json=payload, timeout=120.0)
+            
+            logger.info(f"Response status: {response.status_code}")
+            logger.info(f"Response body: {response.text[:500]}")
             
             if response.status_code != 200:
                 error_detail = response.json().get("message", response.text[:200]) if response.content else "No response"
@@ -135,19 +134,6 @@ async def search_notices(request: SearchRequest):
             data = response.json()
             total = data.get("total", 0)
             logger.info(f"Total results: {total} notices")
-            
-            # Если получили 0 результатов, попробуем тестовый запрос для диагностики
-            if total == 0 and query_terms:
-                logger.info("Got 0 results; trying test query for diagnosis")
-                payload["query"] = get_test_query()
-                response = await client.post(TED_API_URL, json=payload, timeout=120.0)
-                data = response.json()
-                test_total = data.get("total", 0)
-                logger.info(f"Test query (buyer-country=EU) returned: {test_total} notices")
-                # Вернем пустой результат с оригинальным запросом
-                payload["query"] = expert_query
-                response = await client.post(TED_API_URL, json=payload, timeout=120.0)
-                data = response.json()
             
             notices = []
             for item in data.get("results", []):
