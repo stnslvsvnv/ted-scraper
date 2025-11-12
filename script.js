@@ -201,3 +201,41 @@ function showError(message) {
 function hideError() {
     if (errorAlert) errorAlert.style.display = 'none';
 }
+
+// Add Clear button in setupEventListeners
+function setupEventListeners(elements) {
+    elements.searchForm.addEventListener('submit', (e) => handleSearch(e, elements));
+    // Clear button
+    const clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.textContent = 'Очистить фильтры';
+    clearBtn.onclick = () => clearForm(elements);
+    elements.searchForm.appendChild(clearBtn);
+}
+
+// Clear Form (for * query)
+function clearForm(elements) {
+    elements.searchForm.reset();
+    setDefaultDates();  // Keep broader defaults
+    currentPage = 1;
+    performSearch(elements);  // Search with *
+}
+
+// Set Default Dates (2024-01-01 to today for results)
+function setDefaultDates() {
+    const today = new Date();
+    const fromDate = new Date('2024-01-01');
+    const toStr = today.toISOString().split('T')[0];
+    const fromStr = '2024-01-01';
+    
+    document.getElementById('publication-date-from').value = fromStr;
+    document.getElementById('publication-date-to').value = toStr;
+    console.log('Defaults: 2024-01-01 to', toStr, '— expect total >1000');
+}
+
+// In showNoResults
+function showNoResults(elements) {
+    elements.emptyState.innerHTML = '<p>Нет результатов. <button onclick="clearForm(initElements())">Очистить фильтры</button> для последних 25, или расширьте даты/scope ALL.</p>';
+    elements.emptyState.style.display = 'block';
+    elements.resultsContainer.style.display = 'none';
+}

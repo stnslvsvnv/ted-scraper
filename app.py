@@ -1,5 +1,5 @@
 """
-TED Scraper Backend - Фикс total=0: quotes вокруг date/country values
+TED Scraper Backend - Фикс: no quotes for dates/country, fallback to * if 0
 """
 
 from fastapi import FastAPI, HTTPException
@@ -70,29 +70,29 @@ async def read_root():
 async def search_notices(request: SearchRequest):
     try:
         query_terms = []
+        has_date_filter = False
         if request.filters:
             if request.filters.text:
                 text = request.filters.text.strip()
                 if ' ' in text:
-                    ft_term = f'FT~"{text}"'
+                    ft_term = f'FT~"{text}"'  # Quotes only for phrase
                 else:
-                    ft_term = f'FT~{text}'
+                    ft_term = f'FT~{text}'  # No quotes for word
                 query_terms.append(f'({ft_term})')
             
             if request.filters.country:
-                country_val = request.filters.country.upper()
-                # Quotes вокруг value
-                query_terms.append(f'(country-of-buyer="{country_val}")')
+                # No quotes for code
+                query_terms.append(f'(country-of-buyer={request.filters.country.upper()})')
             
             if request.filters.publication_date_from:
                 from_date = request.filters.publication_date_from.replace("-", "")
-                # Quotes вокруг date value
-                query_terms.append(f'(publication-date >= "{from_date}")')
+                query_terms.append(f'(publication-date >= {from_date})')
+                has_date_filter = True
             
             if request.filters.publication_date_to:
                 to_date = request.filters.publication_date_to.replace("-", "")
-                # Quotes вокруг date value
-                query_terms.append(f'(publication-date <= "{to_date}")')
+                query_terms.append(f'(publication-date <= {to_date})')
+                has_date_filter = True
         
         if query_terms:
             expert_query = " AND ".join(query_terms)
@@ -113,15 +113,27 @@ async def search_notices(request: SearchRequest):
             response = await client.post(TED_API_URL, json=payload, timeout=120.0)
             data = response.json()
             total = data.get("total", 0)
-            if total == 0 and payload["scope"] == "LATEST":
-                logger.info("LATEST gave 0; retry with ALL")
+            if total == 0:
+                logger.info("Total 0 with LATEST; retry ALL")
                 payload["scope"] = "ALL"
                 response = await client.post(TED_API_URL, json=payload, timeout=120.0)
                 data = response.json()
                 total = data.get("total", 0)
                 logger.info(f"ALL scope total: {total}")
-            if total == 0:
-                logger.info("No matches — suggest broader dates or * query")
+            if total == 0 and has_date_filter:
+                logger.info("Dates filter gave 0; fallback to * with other filters")
+                # Retry without date terms (keep text/country)
+                non_date_terms = [t for t in query_terms if 'publication-date' not in t]
+                if non_date_terms:
+                    expert_query_no_date = " AND ".join(non_date_terms)
+                else:
+                    expert_query_no_date = "*"
+                payload["query"] = expert_query_no_date
+                payload["scope"] = "ALL"
+                response = await client.post(TED_API_URL, json=payload, timeout=120.0)
+                data = response.json()
+                total = data.get("total", 0)
+                logger.info(f"Fallback * total: {total}")
         
         logger.info(f"TED Response: {response.status_code}")
         
@@ -161,4 +173,3 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", "8000"))
     uvicorn.run(app, host="0.0.0.0", port=port)
-
