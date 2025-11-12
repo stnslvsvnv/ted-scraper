@@ -1,5 +1,5 @@
 """
-TED Scraper Backend - Фикс syntax: скобки только для multi-term text
+TED Scraper Backend - Финальный: text через CONTENT: в expert query
 """
 
 from fastapi import FastAPI, HTTPException
@@ -73,24 +73,21 @@ async def search_notices(request: SearchRequest):
         if request.filters:
             if request.filters.text:
                 text = request.filters.text.strip()
-                # Скобки только для фраз с пробелами или >1 слова
-                if ' ' in text or len(text.split()) > 1:
-                    query_parts.append(f'("{text}")')  # Фраза в ""
+                # CONTENT: для полнотекстового поиска
+                if ' ' in text:
+                    query_parts.append(f'CONTENT:"{text}"')  # Фраза в кавычках
                 else:
-                    query_parts.append(text)  # Простое слово без ()
+                    query_parts.append(f'CONTENT:{text}')  # Слово без кавычек
             
             if request.filters.country:
-                # Без () для простого field:value
                 query_parts.append(f'country-of-buyer:{request.filters.country.upper()}')
             
             if request.filters.publication_date_from:
                 from_date = request.filters.publication_date_from.replace("-", "")
-                # Без () для сравнения
                 query_parts.append(f'publication-date>={from_date}')
             
             if request.filters.publication_date_to:
                 to_date = request.filters.publication_date_to.replace("-", "")
-                # Без () для сравнения
                 query_parts.append(f'publication-date<={to_date}')
         
         expert_query = " AND ".join(query_parts) if query_parts else "*"
