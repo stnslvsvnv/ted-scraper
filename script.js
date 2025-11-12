@@ -1,8 +1,8 @@
-/* TED Scraper Frontend - Исправленная версия */
+/* TED Scraper Frontend - Исправленная версия с POST */
 
 const CONFIG = {
-    BACKEND_BASE_URL: window.location.origin,
-    REQUEST_TIMEOUT: 30000
+    BACKEND_BASE_URL: 'http://65.21.253.7:8846',  // Если порт другой, укажите вручную, напр. 'http://your-server:8846'
+    REQUEST_TIMEOUT: 60000  // Увеличено для TED API
 };
 
 console.log('Backend URL:', CONFIG.BACKEND_BASE_URL);
@@ -39,10 +39,10 @@ function setupEventListeners() {
     }
 }
 
-// Check Backend Status
+// Check Backend Status (простая проверка /)
 async function checkBackendStatus() {
     try {
-        const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/search?page=1&limit=1`);
+        const response = await fetch(CONFIG.BACKEND_BASE_URL + '/', { timeout: 5000 });
         if (response.ok) {
             backendStatus.textContent = 'Backend готов';
             backendStatus.className = 'status success';
@@ -61,8 +61,13 @@ function setDefaultDates() {
     const today = new Date();
     const fromDate = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
     
-    document.getElementById('publication-date-from').value = fromDate.toISOString().split('T')[0];
-    document.getElementById('publication-date-to').value = today.toISOString().split('T')[0];
+    const fromStr = fromDate.toISOString().split('T')[0];
+    const toStr = today.toISOString().split('T')[0];
+    
+    const fromInput = document.getElementById('publication-date-from');
+    const toInput = document.getElementById('publication-date-to');
+    if (fromInput) fromInput.value = fromStr;
+    if (toInput) toInput.value = toStr;
 }
 
 // Handle Search
@@ -85,16 +90,22 @@ async function performSearch() {
     hideError();
     resultsList.innerHTML = '';
     pagination.innerHTML = '';
+    searchStatus.textContent = '';
+    searchStatus.className = '';
 
     try {
         const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/search`, {
-            method: 'GET',  // FastAPI поддерживает GET с query params для Pydantic
-            headers: { 'Content-Type': 'application/json' },
-            timeout: CONFIG.REQUEST_TIMEOUT
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(request),
+            signal: AbortSignal.timeout(CONFIG.REQUEST_TIMEOUT)
         });
 
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            const errorText = await response.text();
+            throw new Error(`HTTP ${response.status}: ${errorText}`);
         }
 
         const data = await response.json();
@@ -102,7 +113,7 @@ async function performSearch() {
 
         displayResults(data);
         updatePagination(data.total, 25);
-        searchStatus.textContent = `Показаны ${data.notices.length} из ${data.total} результатов`;
+        searchStatus.textContent = `Показаны ${ (currentPage - 1) * 25 + data.notices.length } из ${data.total} результатов`;
         searchStatus.className = 'status info';
 
     } catch (error) {
@@ -115,11 +126,16 @@ async function performSearch() {
 
 // Get Filters From Form
 function getFiltersFromForm() {
+    const text = document.getElementById('text');
+    const fromDate = document.getElementById('publication-date-from');
+    const toDate = document.getElementById('publication-date-to');
+    const country = document.getElementById('country');
+    
     return {
-        text: document.getElementById('text').value.trim() || null,
-        publication_date_from: document.getElementById('publication-date-from').value || null,
-        publication_date_to: document.getElementById('publication-date-to').value || null,
-        country: document.getElementById('country').value.trim().toUpperCase() || null
+        text: text ? text.value.trim() || null : null,
+        publication_date_from: fromDate ? fromDate.value || null : null,
+        publication_date_to: toDate ? toDate.value || null : null,
+        country: country ? country.value.trim().toUpperCase() || null : null
     };
 }
 
@@ -162,7 +178,7 @@ function updatePagination(total, limit) {
     pagination.innerHTML = paginationHtml;
 }
 
-// Change Page
+// Change Page (глобальная для onclick)
 window.changePage = function(page) {
     if (page < 1 || page > totalPages) return;
     currentPage = page;
@@ -171,15 +187,17 @@ window.changePage = function(page) {
 
 // Utility Functions
 function showLoading(show) {
-    loadingSpinner.style.display = show ? 'block' : 'none';
-    searchBtn.disabled = show;
+    if (loadingSpinner) loadingSpinner.style.display = show ? 'block' : 'none';
+    if (searchBtn) searchBtn.disabled = show;
 }
 
 function showError(message) {
-    errorAlert.textContent = message;
-    errorAlert.style.display = 'block';
+    if (errorAlert) {
+        errorAlert.textContent = message;
+        errorAlert.style.display = 'block';
+    }
 }
 
 function hideError() {
-    errorAlert.style.display = 'none';
+    if (errorAlert) errorAlert.style.display = 'none';
 }
