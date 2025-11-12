@@ -1,5 +1,5 @@
 """
-TED Scraper Backend - Финальный: FT: для free text (CONTENT -> FT)
+TED Scraper Backend - Решение: Группировка в (), FT~, range [TO], = для equality
 """
 
 from fastapi import FastAPI, HTTPException
@@ -69,28 +69,34 @@ async def read_root():
 @app.post("/search")
 async def search_notices(request: SearchRequest):
     try:
-        query_parts = []
+        query_terms = []
         if request.filters:
             if request.filters.text:
                 text = request.filters.text.strip()
-                # FT: для free text (поле FT в TED v3)
                 if ' ' in text:
-                    query_parts.append(f'FT:"{text}"')  # Фраза в кавычках для exact
+                    # Фраза: FT~"phrase" (fuzzy exact phrase)
+                    term = f'FT~"{text}"'
                 else:
-                    query_parts.append(f'FT:{text}')  # Слово (implicit =)
+                    # Слово: FT~word (stemmed)
+                    term = f'FT~{text}'
+                query_terms.append(f'({term})')
             
             if request.filters.country:
-                query_parts.append(f'country-of-buyer:{request.filters.country.upper()}')  # : = =
+                # Country with = 
+                query_terms.append(f'(country-of-buyer={request.filters.country.upper()})')
             
-            if request.filters.publication_date_from:
-                from_date = request.filters.publication_date_from.replace("-", "")
-                query_parts.append(f'publication-date>={from_date}')  # >= для range
-            
-            if request.filters.publication_date_to:
-                to_date = request.filters.publication_date_to.replace("-", "")
-                query_parts.append(f'publication-date<={to_date}')
+            if request.filters.publication_date_from or request.filters.publication_date_to:
+                from_date = request.filters.publication_date_from.replace("-", "") if request.filters.publication_date_from else "19000101"
+                to_date = request.filters.publication_date_to.replace("-", "") if request.filters.publication_date_to else "99991231"
+                # Range [TO]
+                date_term = f'(publication-date=[{from_date} TO {to_date}])'
+                query_terms.append(date_term)
         
-        expert_query = " AND ".join(query_parts) if query_parts else "*"
+        # Соединяем с AND, или * если пусто
+        if query_terms:
+            expert_query = " AND ".join(query_terms)
+        else:
+            expert_query = "*"
         
         logger.info(f"POST /search: query={expert_query}, page={request.page}, limit={request.limit}")
         
@@ -98,8 +104,9 @@ async def search_notices(request: SearchRequest):
             "query": expert_query,
             "page": max(1, request.page),
             "limit": min(100, max(1, request.limit)),
-            "scope": "LATEST",
-            "fields": SUPPORTED_FIELDS
+            "scope": "LATEST",  # Или "ALL" для всех notices (уберите LATEST если total=0)
+            "fields": SUPPORTED_FIELDS,
+            "checkQuerySyntax": True  # Для debug: проверьте syntax без results; уберите после
         }
         
         logger.info(f"🔍 TED API: query='{expert_query}', fields={SUPPORTED_FIELDS}")
@@ -122,6 +129,16 @@ async def search_notices(request: SearchRequest):
             raise HTTPException(status_code=response.status_code, detail=f"TED API error: {detail}")
         
         data = response.json()
+        # Если checkQuerySyntax, data может быть {"syntaxValid": true}, без results
+        if "checkQuerySyntax" in payload:
+            if data.get("syntaxValid", False):
+                logger.info("Query syntax valid")
+                del payload["checkQuerySyntax"]  # Повторить без check для results
+                response = await client.post(TED_API_URL, json=payload, timeout=120.0)
+                data = response.json()
+            else:
+                raise HTTPException(status_code=400, detail="Invalid query syntax")
+        
         total = data.get("total", 0)
         
         notices = []
