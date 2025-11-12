@@ -1,5 +1,5 @@
 """
-TED Scraper Backend - Финальный: text через CONTENT: в expert query
+TED Scraper Backend - Финальный: FT: для free text (CONTENT -> FT)
 """
 
 from fastapi import FastAPI, HTTPException
@@ -73,18 +73,18 @@ async def search_notices(request: SearchRequest):
         if request.filters:
             if request.filters.text:
                 text = request.filters.text.strip()
-                # CONTENT: для полнотекстового поиска
+                # FT: для free text (поле FT в TED v3)
                 if ' ' in text:
-                    query_parts.append(f'CONTENT:"{text}"')  # Фраза в кавычках
+                    query_parts.append(f'FT:"{text}"')  # Фраза в кавычках для exact
                 else:
-                    query_parts.append(f'CONTENT:{text}')  # Слово без кавычек
+                    query_parts.append(f'FT:{text}')  # Слово (implicit =)
             
             if request.filters.country:
-                query_parts.append(f'country-of-buyer:{request.filters.country.upper()}')
+                query_parts.append(f'country-of-buyer:{request.filters.country.upper()}')  # : = =
             
             if request.filters.publication_date_from:
                 from_date = request.filters.publication_date_from.replace("-", "")
-                query_parts.append(f'publication-date>={from_date}')
+                query_parts.append(f'publication-date>={from_date}')  # >= для range
             
             if request.filters.publication_date_to:
                 to_date = request.filters.publication_date_to.replace("-", "")
