@@ -1,6 +1,9 @@
 """
-TED Scraper Backend - FINAL CORRECT VERSION
-Using EXACT supported fields from API error message
+TED Scraper Backend - CORRECT VERSION
+Fixes:
+1. fields = ["CONTENT"] only (supported field)
+2. Accept query directly from frontend
+3. Return { total, results } format
 """
 
 from fastapi import FastAPI, HTTPException
@@ -21,9 +24,9 @@ logger = logging.getLogger("tedapi")
 # ============================================================================
 
 class SearchRequest(BaseModel):
-    query: str = "*"
+    query: str  # Already formatted query string from frontend
     page: int = 1
-    limit: int = 10
+    limit: int = 25
 
 
 class Notice(BaseModel):
@@ -65,28 +68,19 @@ except:
 # BACKEND LOGIC
 # ============================================================================
 
-async def search_ted_api(query: str = "*", page: int = 1, limit: int = 10) -> Dict[str, Any]:
+async def search_ted_api(query: str, page: int = 1, limit: int = 25) -> Dict[str, Any]:
     """
     Call TED API v3.0
     
-    Using EXACT supported fields from API error message
+    FIX 1: Use only supported field "CONTENT"
+    FIX 2: Accept pre-formatted query from frontend (dates already in YYYYMMDD)
     """
     
-    logger.info(f"🔍 Searching TED API: query='{query}', page={page}, limit={limit}")
+    logger.info(f"🔍 TED API Query: {query}")
+    logger.info(f"   Page: {page}, Limit: {limit}")
     
-    # EXACT fields from API error message - these work!
-    fields = [
-        "sme-part",
-        "touchpoint-gateway-ted-esen",
-        "submission-url-lot",
-        "organisation-person-addinfo-part",
-        "no-negocaition-necessary-lot",
-        "BT-13(t)-Part",
-        "organisation-city-serv-prov",
-        "result-framework-maximum-value-cur-notice",
-        "BT-821-Lot",
-        "touchpoint-partname-tenderer"
-    ]
+    # FIX 1: Use ONLY supported field
+    fields = ["CONTENT"]
     
     payload = {
         "query": query,
@@ -96,12 +90,10 @@ async def search_ted_api(query: str = "*", page: int = 1, limit: int = 10) -> Di
         "fields": fields
     }
     
-    logger.info(f"Using {len(fields)} supported fields")
+    logger.info(f"📤 POST to https://api.ted.europa.eu/v3/notices/search")
     
     try:
         async with httpx.AsyncClient(timeout=60) as client:
-            logger.info(f"📤 POST to https://api.ted.europa.eu/v3/notices/search")
-            
             response = await client.post(
                 "https://api.ted.europa.eu/v3/notices/search",
                 json=payload,
@@ -113,10 +105,10 @@ async def search_ted_api(query: str = "*", page: int = 1, limit: int = 10) -> Di
             if response.status_code != 200:
                 error_text = response.text[:1000]
                 logger.error(f"❌ API Error: {error_text}")
-                raise Exception(f"TED API returned {response.status_code}: {error_text}")
+                raise Exception(f"API {response.status_code}: {error_text}")
             
             data = response.json()
-            logger.info(f"✓ Got {len(data.get('results', []))} results from {data.get('total', 0)} total")
+            logger.info(f"✓ Total: {data.get('total', 0)}, Results: {len(data.get('results', []))}")
             
             return data
             
@@ -126,27 +118,26 @@ async def search_ted_api(query: str = "*", page: int = 1, limit: int = 10) -> Di
 
 
 def parse_notices(ted_response: Dict[str, Any]) -> List[Notice]:
-    """Parse TED API response - extract any available data"""
+    """Parse TED API response with CONTENT field"""
     notices = []
     
     for item in ted_response.get("results", []):
         try:
-            # Extract any available identifier
-            pub_num = None
-            for key in item.keys():
-                if "number" in key.lower() or "id" in key.lower():
-                    pub_num = item.get(key)
-                    break
+            # CONTENT field contains XML/JSON with notice data
+            content = item.get("CONTENT", {})
             
-            if not pub_num:
-                pub_num = list(item.values())[0] if item else "N/A"
+            # Extract from CONTENT if it's a dict, otherwise use item directly
+            if isinstance(content, dict):
+                data = content
+            else:
+                data = item
             
             notice = Notice(
-                publication_number=str(pub_num),
-                publication_date=None,
-                title=None,
-                buyer=None,
-                country=None
+                publication_number=data.get("publication-number") or data.get("ND-Root") or "N/A",
+                publication_date=data.get("publication-date"),
+                title=data.get("notice-title") or data.get("title"),
+                buyer=data.get("buyer-name") or data.get("organisation-name"),
+                country=data.get("place-of-performance") or data.get("country")
             )
             notices.append(notice)
             
@@ -197,8 +188,12 @@ async def health():
 
 @app.post("/search")
 async def search(req: SearchRequest):
-    """Search endpoint"""
-    logger.info(f"POST /search: query={req.query}")
+    """
+    Search endpoint
+    FIX 3: Accept { query, page, limit } format from frontend
+    FIX 4: Return { total, results } format
+    """
+    logger.info(f"POST /search")
     
     try:
         ted_response = await search_ted_api(req.query, req.page, req.limit)
@@ -209,7 +204,7 @@ async def search(req: SearchRequest):
             results=notices
         )
     except Exception as e:
-        logger.error(f"Search error: {e}")
+        logger.error(f"❌ Search error: {e}")
         raise HTTPException(status_code=502, detail=str(e))
 
 
@@ -220,9 +215,7 @@ async def search(req: SearchRequest):
 if __name__ == "__main__":
     import uvicorn
     print("\n" + "="*60)
-    print("🚀 TED Scraper Backend - FINAL")
-    print("="*60)
-    print("Using EXACT supported fields from TED API")
+    print("🚀 TED Scraper Backend - FIXED")
     print("="*60 + "\n")
     
     uvicorn.run("app:app", host="0.0.0.0", port=8846, reload=False)
