@@ -1,6 +1,6 @@
 """
-TED Scraper Backend - FINAL WORKING VERSION
-Using SUPPORTED fields only
+TED Scraper Backend - WITHOUT FIELDS PARAMETER
+Let API return default fields
 """
 
 from fastapi import FastAPI, HTTPException
@@ -69,36 +69,21 @@ except:
 
 async def search_ted_api(query: str = "*", page: int = 1, limit: int = 10) -> Dict[str, Any]:
     """
-    Direct call to TED API v3.0
-    
-    IMPORTANT: Using ONLY SUPPORTED field names!
+    Call TED API v3.0 WITHOUT fields parameter
+    Let API return default fields
     """
     
     logger.info(f"🔍 Searching TED API: query='{query}', page={page}, limit={limit}")
     
-    # These are SUPPORTED fields according to TED API
-    # (list provided by API in error message)
-    fields = [
-        "BT-13(t)-Part",
-        "BT-271-Procedure",
-        "BT-02-Procedure",
-        "BT-04-Procedure-Buyer",
-        "BT-500-Procedure-Framework",
-        "BT-809-Lot",
-        "organisation-name",
-        "buyer-name",
-        "notice-title",
-        "publication-date",
-        "publication-number"
-    ]
-    
+    # NO FIELDS PARAMETER - let API return defaults
     payload = {
         "query": query,
         "page": page,
         "limit": limit,
-        "scope": "ACTIVE",
-        "fields": fields
+        "scope": "ACTIVE"
     }
+    
+    logger.info(f"Payload (no fields): {payload}")
     
     try:
         async with httpx.AsyncClient(timeout=60) as client:
@@ -113,11 +98,17 @@ async def search_ted_api(query: str = "*", page: int = 1, limit: int = 10) -> Di
             logger.info(f"📥 Status: {response.status_code}")
             
             if response.status_code != 200:
-                error_text = response.text[:500]
+                error_text = response.text[:1000]
                 logger.error(f"❌ API Error: {error_text}")
                 raise Exception(f"TED API returned {response.status_code}: {error_text}")
             
             data = response.json()
+            
+            # Log what fields are actually returned
+            if data.get("results") and len(data["results"]) > 0:
+                sample_fields = list(data["results"][0].keys())
+                logger.info(f"Returned fields: {sample_fields[:10]}...")
+            
             logger.info(f"✓ Got {len(data.get('results', []))} results out of {data.get('total', 0)} total")
             
             return data
@@ -128,21 +119,60 @@ async def search_ted_api(query: str = "*", page: int = 1, limit: int = 10) -> Di
 
 
 def parse_notices(ted_response: Dict[str, Any]) -> List[Notice]:
-    """Parse TED API response to Notice objects"""
+    """Parse TED API response - extract any available fields"""
     notices = []
     
     for item in ted_response.get("results", []):
         try:
+            # Try to get publication number from any possible field
+            pub_num = (
+                item.get("publication-number") or 
+                item.get("publicationNumber") or 
+                item.get("ND-Root") or
+                "N/A"
+            )
+            
+            # Try to get title from any possible field
+            title = (
+                item.get("notice-title") or
+                item.get("title") or
+                item.get("BT-02-Procedure") or
+                None
+            )
+            
+            # Try to get buyer
+            buyer = (
+                item.get("buyer-name") or
+                item.get("organisation-name") or
+                None
+            )
+            
+            # Try to get date
+            pub_date = (
+                item.get("publication-date") or
+                item.get("publicationDate") or
+                None
+            )
+            
+            # Try to get country
+            country = (
+                item.get("place-of-performance") or
+                item.get("country") or
+                None
+            )
+            
             notice = Notice(
-                publication_number=item.get("publication-number", "N/A"),
-                publication_date=item.get("publication-date"),
-                title=item.get("notice-title"),
-                buyer=item.get("buyer-name"),
-                country=item.get("place-of-performance")
+                publication_number=str(pub_num),
+                publication_date=pub_date,
+                title=title,
+                buyer=buyer,
+                country=country
             )
             notices.append(notice)
-        except:
-            pass
+            
+        except Exception as e:
+            logger.warning(f"Could not parse notice: {e}")
+            continue
     
     return notices
 
@@ -168,7 +198,6 @@ async def serve_static(path: str):
         if os.path.exists(fpath):
             return FileResponse(fpath)
     
-    # Default to index.html
     index_file = os.path.join(os.path.dirname(__file__), "index.html")
     if os.path.exists(index_file):
         return FileResponse(index_file)
@@ -211,7 +240,7 @@ async def search(req: SearchRequest):
 if __name__ == "__main__":
     import uvicorn
     print("\n" + "="*60)
-    print("🚀 TED Scraper Backend")
+    print("🚀 TED Scraper Backend - NO FIELDS")
     print("="*60)
     print("API: http://localhost:8846/search")
     print("Docs: http://localhost:8846/docs")
