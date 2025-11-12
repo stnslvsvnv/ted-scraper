@@ -28,11 +28,11 @@ app.add_middleware(
 # API-роуты
 TED_API_URL = "https://api.ted.europa.eu/v3/notices/search"
 SUPPORTED_FIELDS = [
-    "publication-number",  # Номер публикации
-    "publication-date",    # Дата
-    "title",               # Заголовок
-    "buyer-name",          # Имя покупателя
-    "country-of-buyer"     # Страна покупателя
+    "publication-number",
+    "publication-date",
+    "notice-title",
+    "buyer-name",
+    "buyer-country"
 ]  # Валидные поля из TED API (без CONTENT)
 
 class Filters(BaseModel):
@@ -124,9 +124,9 @@ async def search_notices(request: SearchRequest):
             notice = Notice(
                 publication_number=item.get("publication-number", ""),
                 publication_date=item.get("publication-date"),
-                title=item.get("title", "No title"),
-                buyer=item.get("buyer-name", "Unknown buyer"),
-                country=item.get("country-of-buyer", "Unknown")
+                title=item.get("notice-title"),
+                buyer=item.get("buyer-name"),
+                country=item.get("buyer-country")
             )
             notices.append(notice)
         
