@@ -1,5 +1,5 @@
 """
-TED Scraper Backend - Фикс 405 с /static для файлов
+TED Scraper Backend - Фикс 400: правильные fields для TED API v3
 """
 
 from fastapi import FastAPI, HTTPException
@@ -25,9 +25,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# API-роуты ПЕРЕД static (приоритет)
+# API-роуты
 TED_API_URL = "https://api.ted.europa.eu/v3/notices/search"
-SUPPORTED_FIELDS = ["CONTENT"]
+SUPPORTED_FIELDS = [
+    "publication-number",  # Номер публикации
+    "publication-date",    # Дата
+    "title",               # Заголовок
+    "buyer-name",          # Имя покупателя
+    "country-of-buyer"     # Страна покупателя
+]  # Валидные поля из TED API (без CONTENT)
 
 class Filters(BaseModel):
     text: Optional[str] = None
@@ -57,9 +63,11 @@ async def health():
 
 @app.get("/")
 async def read_root():
-    return FileResponse("index.html")  # Прямо отдаём index.html
+    if not os.path.exists("index.html"):
+        raise HTTPException(status_code=404, detail="index.html not found")
+    return FileResponse("index.html")
 
-@app.post("/search")  # POST для JSON от JS
+@app.post("/search")
 async def search_notices(request: SearchRequest):
     try:
         query_parts = []
@@ -69,10 +77,10 @@ async def search_notices(request: SearchRequest):
             if request.filters.country:
                 query_parts.append(f'country-of-buyer:{request.filters.country.upper()}')
             if request.filters.publication_date_from:
-                from_date = request.filters.publication_date_from.replace("-", "")
+                from_date = request.filters.publication_date_from.replace("-", "")  # YYYYMMDD
                 query_parts.append(f'publication-date>={from_date}')
             if request.filters.publication_date_to:
-                to_date = request.filters.publication_date_to.replace("-", "")
+                to_date = request.filters.publication_date_to.replace("-", "")  # YYYYMMDD
                 query_parts.append(f'publication-date<={to_date}')
         
         expert_query = " AND ".join(query_parts) if query_parts else "*"
@@ -84,10 +92,10 @@ async def search_notices(request: SearchRequest):
             "page": max(1, request.page),
             "limit": min(100, max(1, request.limit)),
             "scope": "LATEST",
-            "fields": SUPPORTED_FIELDS
+            "fields": SUPPORTED_FIELDS  # Теперь валидные поля
         }
         
-        logger.info(f"🔍 TED API: query='{expert_query}'")
+        logger.info(f"🔍 TED API: query='{expert_query}', fields={SUPPORTED_FIELDS}")
         
         async with httpx.AsyncClient() as client:
             response = await client.post(TED_API_URL, json=payload, timeout=120.0)
@@ -95,22 +103,30 @@ async def search_notices(request: SearchRequest):
         logger.info(f"TED Response: {response.status_code}")
         
         if response.status_code != 200:
-            error_detail = response.json() if 'application/json' in response.headers.get('content-type', '') else {"detail": response.text[:200]}
-            logger.error(f"TED Error: {error_detail}")
-            raise HTTPException(status_code=response.status_code, detail=f"TED API: {error_detail}")
+            try:
+                error_detail = response.json()
+                # Для 400: берём message для ясности
+                if response.status_code == 400:
+                    detail = error_detail.get("message", str(error_detail))
+                else:
+                    detail = error_detail.get("detail", response.text[:200])
+            except:
+                detail = response.text[:200]
+            logger.error(f"TED Error ({response.status_code}): {detail}")
+            raise HTTPException(status_code=response.status_code, detail=f"TED API error: {detail}")
         
         data = response.json()
         total = data.get("total", 0)
         
         notices = []
         for item in data.get("results", []):
-            content = item.get("CONTENT", {})
+            # Теперь поля напрямую в item (не в CONTENT)
             notice = Notice(
-                publication_number=content.get("publicationNumber", str(item.get("id", ""))),
-                publication_date=content.get("publicationDate"),
-                title=content.get("title") or content.get("shortTitle", "No title"),
-                buyer=content.get("buyerName") or next((b.get("name") for b in content.get("buyers", [])), "Unknown"),
-                country=content.get("country") or next((b.get("countryCode") for b in content.get("buyers", [])), "Unknown")
+                publication_number=item.get("publication-number", ""),
+                publication_date=item.get("publication-date"),
+                title=item.get("title", "No title"),
+                buyer=item.get("buyer-name", "Unknown buyer"),
+                country=item.get("country-of-buyer", "Unknown")
             )
             notices.append(notice)
         
@@ -119,12 +135,12 @@ async def search_notices(request: SearchRequest):
     
     except httpx.RequestError as e:
         logger.error(f"TED Connection: {e}")
-        raise HTTPException(status_code=502, detail=f"Connection: {str(e)}")
+        raise HTTPException(status_code=502, detail=f"Connection error: {str(e)}")
     except Exception as e:
-        logger.error(f"Search: {str(e)}")
+        logger.error(f"Search error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# Mount static ТОЛЬКО на /static (CSS/JS)
+# Static files на /static (CSS/JS)
 app.mount("/static", StaticFiles(directory="."), name="static")
 
 if __name__ == "__main__":
