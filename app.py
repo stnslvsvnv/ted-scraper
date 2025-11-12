@@ -1,5 +1,5 @@
 """
-TED Scraper Backend - Финальное решение: отдельные >=/<= с ( ), FT~, = для country
+TED Scraper Backend - Фикс total=0: quotes вокруг date/country values
 """
 
 from fastapi import FastAPI, HTTPException
@@ -74,26 +74,26 @@ async def search_notices(request: SearchRequest):
             if request.filters.text:
                 text = request.filters.text.strip()
                 if ' ' in text:
-                    # Фраза: FT~"phrase"
                     ft_term = f'FT~"{text}"'
                 else:
-                    # Слово: FT~word
                     ft_term = f'FT~{text}'
                 query_terms.append(f'({ft_term})')
             
             if request.filters.country:
-                # Country = DEU
-                query_terms.append(f'(country-of-buyer={request.filters.country.upper()})')
+                country_val = request.filters.country.upper()
+                # Quotes вокруг value
+                query_terms.append(f'(country-of-buyer="{country_val}")')
             
             if request.filters.publication_date_from:
                 from_date = request.filters.publication_date_from.replace("-", "")
-                query_terms.append(f'(publication-date >= {from_date})')
+                # Quotes вокруг date value
+                query_terms.append(f'(publication-date >= "{from_date}")')
             
             if request.filters.publication_date_to:
                 to_date = request.filters.publication_date_to.replace("-", "")
-                query_terms.append(f'(publication-date <= {to_date})')
+                # Quotes вокруг date value
+                query_terms.append(f'(publication-date <= "{to_date}")')
         
-        # Если terms, join с AND; иначе *
         if query_terms:
             expert_query = " AND ".join(query_terms)
         else:
@@ -109,18 +109,19 @@ async def search_notices(request: SearchRequest):
             "fields": SUPPORTED_FIELDS
         }
         
-        # Fallback: Если LATEST даст 0, попробуйте ALL (исторические)
         async with httpx.AsyncClient() as client:
             response = await client.post(TED_API_URL, json=payload, timeout=120.0)
             data = response.json()
             total = data.get("total", 0)
-            if total == 0 and "LATEST" in payload["scope"]:
-                logger.info("LATEST gave 0; retry with ALL scope")
+            if total == 0 and payload["scope"] == "LATEST":
+                logger.info("LATEST gave 0; retry with ALL")
                 payload["scope"] = "ALL"
                 response = await client.post(TED_API_URL, json=payload, timeout=120.0)
                 data = response.json()
                 total = data.get("total", 0)
                 logger.info(f"ALL scope total: {total}")
+            if total == 0:
+                logger.info("No matches — suggest broader dates or * query")
         
         logger.info(f"TED Response: {response.status_code}")
         
@@ -160,3 +161,4 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", "8000"))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
