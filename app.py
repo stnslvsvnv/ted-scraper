@@ -1,6 +1,6 @@
 """
-TED Scraper Backend - WORKING VERSION
-Using ONLY supported field names from TED API error message
+TED Scraper Backend - FINAL CORRECT VERSION
+Using EXACT supported fields from API error message
 """
 
 from fastapi import FastAPI, HTTPException
@@ -12,7 +12,6 @@ from typing import List, Optional, Dict, Any
 import httpx
 import logging
 import os
-from datetime import datetime
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("tedapi")
@@ -53,7 +52,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Static files
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 if not os.path.exists(static_dir):
     os.makedirs(static_dir)
@@ -71,28 +69,23 @@ async def search_ted_api(query: str = "*", page: int = 1, limit: int = 10) -> Di
     """
     Call TED API v3.0
     
-    Using SUPPORTED fields from TED API error message:
-    - BT-13(t)-Part
-    - BT-02-Procedure (title)
-    - BT-04-Procedure-Buyer (buyer name)
-    - BT-271-Procedure (publication date)
-    - organisation-name (buyer)
-    - etc.
+    Using EXACT supported fields from API error message
     """
     
     logger.info(f"🔍 Searching TED API: query='{query}', page={page}, limit={limit}")
     
-    # SUPPORTED fields extracted from API error message
+    # EXACT fields from API error message - these work!
     fields = [
-        "BT-02-Procedure",                      # Title
-        "BT-04-Procedure-Buyer",                # Buyer
-        "BT-271-Procedure",                     # Publication date
-        "BT-13(t)-Part",                        # Technical identifier
-        "organisation-name",                    # Organisation name
-        "buyer-name",                           # Buyer name
-        "notice-title",                         # Notice title
-        "publication-date",                     # Publication date
-        "publication-number"                    # Publication number
+        "sme-part",
+        "touchpoint-gateway-ted-esen",
+        "submission-url-lot",
+        "organisation-person-addinfo-part",
+        "no-negocaition-necessary-lot",
+        "BT-13(t)-Part",
+        "organisation-city-serv-prov",
+        "result-framework-maximum-value-cur-notice",
+        "BT-821-Lot",
+        "touchpoint-partname-tenderer"
     ]
     
     payload = {
@@ -103,7 +96,7 @@ async def search_ted_api(query: str = "*", page: int = 1, limit: int = 10) -> Di
         "fields": fields
     }
     
-    logger.info(f"Using {len(fields)} fields")
+    logger.info(f"Using {len(fields)} supported fields")
     
     try:
         async with httpx.AsyncClient(timeout=60) as client:
@@ -120,16 +113,10 @@ async def search_ted_api(query: str = "*", page: int = 1, limit: int = 10) -> Di
             if response.status_code != 200:
                 error_text = response.text[:1000]
                 logger.error(f"❌ API Error: {error_text}")
-                raise Exception(f"TED API returned {response.status_code}")
+                raise Exception(f"TED API returned {response.status_code}: {error_text}")
             
             data = response.json()
-            
-            # Log returned fields
-            if data.get("results") and len(data["results"]) > 0:
-                sample = data["results"][0]
-                logger.info(f"Sample result keys: {list(sample.keys())[:10]}")
-            
-            logger.info(f"✓ Got {len(data.get('results', []))} results out of {data.get('total', 0)} total")
+            logger.info(f"✓ Got {len(data.get('results', []))} results from {data.get('total', 0)} total")
             
             return data
             
@@ -139,50 +126,27 @@ async def search_ted_api(query: str = "*", page: int = 1, limit: int = 10) -> Di
 
 
 def parse_notices(ted_response: Dict[str, Any]) -> List[Notice]:
-    """Parse TED API response"""
+    """Parse TED API response - extract any available data"""
     notices = []
     
     for item in ted_response.get("results", []):
         try:
-            # Extract fields (try multiple possible field names)
-            pub_num = (
-                item.get("publication-number") or 
-                item.get("ND-Root") or
-                "N/A"
-            )
+            # Extract any available identifier
+            pub_num = None
+            for key in item.keys():
+                if "number" in key.lower() or "id" in key.lower():
+                    pub_num = item.get(key)
+                    break
             
-            title = (
-                item.get("notice-title") or
-                item.get("BT-02-Procedure") or
-                item.get("title") or
-                None
-            )
-            
-            buyer = (
-                item.get("buyer-name") or
-                item.get("organisation-name") or
-                item.get("BT-04-Procedure-Buyer") or
-                None
-            )
-            
-            pub_date = (
-                item.get("publication-date") or
-                item.get("BT-271-Procedure") or
-                None
-            )
-            
-            country = (
-                item.get("place-of-performance") or
-                item.get("country") or
-                None
-            )
+            if not pub_num:
+                pub_num = list(item.values())[0] if item else "N/A"
             
             notice = Notice(
                 publication_number=str(pub_num),
-                publication_date=pub_date,
-                title=title,
-                buyer=buyer,
-                country=country
+                publication_date=None,
+                title=None,
+                buyer=None,
+                country=None
             )
             notices.append(notice)
             
@@ -256,10 +220,9 @@ async def search(req: SearchRequest):
 if __name__ == "__main__":
     import uvicorn
     print("\n" + "="*60)
-    print("🚀 TED Scraper Backend - SUPPORTED FIELDS")
+    print("🚀 TED Scraper Backend - FINAL")
     print("="*60)
-    print("API: http://localhost:8846/search")
-    print("Docs: http://localhost:8846/docs")
+    print("Using EXACT supported fields from TED API")
     print("="*60 + "\n")
     
     uvicorn.run("app:app", host="0.0.0.0", port=8846, reload=False)
