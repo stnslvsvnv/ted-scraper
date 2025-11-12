@@ -1,5 +1,5 @@
 """
-TED Scraper Backend - Финал: spaces in date (publication-date >= YYYYMMDD), empty for all
+TED Scraper Backend - Финал: "" for all, notice-title ~ for text, simplified fallback to LATEST/ALL ""
 """
 
 from fastapi import FastAPI, HTTPException
@@ -74,82 +74,70 @@ async def search_notices(request: SearchRequest):
         if request.filters:
             if request.filters.text:
                 text = request.filters.text.strip()
-                if ' ' in text:
-                    ft_term = f'FT~"{text}"'
-                else:
-                    ft_term = f'FT~{text}'
-                query_terms.append(f'({ft_term})')
+                # Field-specific fuzzy for ALL scope (title OR buyer)
+                ft_term = f'(notice-title ~ {text} OR buyer-name ~ {text})'
+                query_terms.append(ft_term)
             
             if request.filters.country:
-                query_terms.append(f'(country-of-buyer = {request.filters.country.upper()})')  # Space after =
+                query_terms.append(f'(country-of-buyer = {request.filters.country.upper()})')
             
             if request.filters.publication_date_from:
                 from_date = request.filters.publication_date_from.replace("-", "")
-                query_terms.append(f'(publication-date >= {from_date})')  # Spaces after field, after >=
+                query_terms.append(f'(publication-date >= {from_date})')
                 has_date_filter = True
             
             if request.filters.publication_date_to:
                 to_date = request.filters.publication_date_to.replace("-", "")
-                query_terms.append(f'(publication-date <= {to_date})')  # Spaces after field, after <=
+                query_terms.append(f'(publication-date <= {to_date})')
                 has_date_filter = True
         
         expert_query = " AND ".join(query_terms) if query_terms else ""
         
         logger.info(f"POST /search: query={expert_query or 'EMPTY (all lots)'}, page={request.page}, limit={request.limit}")
         
+        # Always include "query" as string ("" for all)
         payload = {
+            "query": expert_query,
             "page": max(1, request.page),
             "limit": min(100, max(1, request.limit)),
             "scope": "LATEST",
             "fields": SUPPORTED_FIELDS
         }
-        if expert_query:
-            payload["query"] = expert_query
         
         async with httpx.AsyncClient() as client:
             response = await client.post(TED_API_URL, json=payload, timeout=120.0)
             data = response.json()
             total = data.get("total", 0)
+            logger.info(f"Initial total: {total} lots")
             
-            if total == 0 and payload["scope"] == "LATEST":
-                logger.info("LATEST 0; retry ALL")
+            # Simplified fallback: If 0, try ALL with same query
+            if total == 0:
+                logger.info("Initial 0; retry ALL with same query")
                 payload["scope"] = "ALL"
                 response = await client.post(TED_API_URL, json=payload, timeout=120.0)
                 data = response.json()
                 total = data.get("total", 0)
                 logger.info(f"ALL total: {total} lots")
             
-            if total == 0 and has_date_filter:
-                logger.info("Dates 0; fallback without dates (all with other filters)")
-                non_date_terms = [t for t in query_terms if 'publication-date' not in t]
-                if non_date_terms:
-                    payload["query"] = " AND ".join(non_date_terms)
-                else:
-                    payload.pop("query", None)
-                payload["scope"] = "ALL"
-                response = await client.post(TED_API_URL, json=payload, timeout=120.0)
-                data = response.json()
-                total = data.get("total", 0)
-                logger.info(f"Fallback total: {total} lots")
-            
+            # If still 0, fallback to empty "" ALL (guaranteed lots)
             if total == 0:
-                logger.info("Still 0; pure all lots")
-                payload.pop("query", None)
+                logger.info("Still 0; fallback to empty query ALL")
+                payload["query"] = ""
                 payload["scope"] = "ALL"
                 response = await client.post(TED_API_URL, json=payload, timeout=120.0)
                 data = response.json()
                 total = data.get("total", 0)
-                logger.info(f"Pure all total: {total} lots")
+                logger.info(f"Empty all total: {total} lots")
         
         if response.status_code != 200:
-            error_detail = response.json().get("message", response.text[:200])
+            error_detail = response.json().get("message", response.text[:200]) if response.content else "No response"
             logger.error(f"TED Error ({response.status_code}): {error_detail}")
             raise HTTPException(status_code=response.status_code, detail=f"TED API error: {error_detail}")
         
         notices = []
         for item in data.get("results", []):
             notice = Notice(
-                publication_number=item.get("publication-number", ""),
+                publication_number=item.get("publication-number", "N/A"),
                 publication_date=item.get("publication-date"),
                 title=item.get("notice-title", "No title"),
                 buyer=item.get("buyer-name", "Unknown buyer"),
