@@ -1,4 +1,4 @@
-/* TED Scraper Frontend - Полная версия с past defaults для лотов и clear button */
+/* TED Scraper Frontend - Полная версия с forced past defaults для лотов и clear button */
 
 const CONFIG = {
     BACKEND_BASE_URL: window.location.origin,
@@ -34,7 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log('TED Scraper Frontend loaded');
     setupEventListeners();
     checkBackendStatus();
-    setDefaultDates();  // Вызов обновлённой функции здесь
+    setDefaultDates();  // Вызов с past dates
     // Initial search with defaults
     performSearch();
 });
@@ -91,7 +91,7 @@ function setupEventListeners() {
     });
 }
 
-// Set Default Dates (past for guaranteed lots) — ОБНОВЛЁННАЯ ФУНКЦИЯ ЗДЕСЬ
+// Set Default Dates (past for guaranteed lots)
 function setDefaultDates() {
     const today = new Date();
     const fromDate = new Date(today.getFullYear(), 9, 1);  // 2024-10-01 (past month for many lots)
@@ -103,14 +103,14 @@ function setDefaultDates() {
     console.log('Default dates for lots:', fromStr, 'to', toStr, '— expect total >10000');
 }
 
-// Clear Form (for * query)
+// Clear Form (for empty query with defaults)
 function clearForm() {
     if (elements.textInput) elements.textInput.value = '';
     if (elements.countryInput) elements.countryInput.value = '';
-    setDefaultDates();  // Keep broader dates
+    setDefaultDates();  // Keep past dates
     if (elements.pageSize) elements.pageSize.value = '25';
     currentPage = 1;
-    console.log('Form cleared — searching with empty query');
+    console.log('Form cleared — searching with past defaults');
     performSearch();
 }
 
@@ -143,13 +143,17 @@ function setBackendOffline() {
     }
 }
 
-// Get form data (match backend filters)
+// Get form data (with forced defaults if empty)
 function getSearchRequest() {
     const text = elements.textInput?.value?.trim() || null;
-    const publicationDateFrom = elements.dateFrom?.value || null;
-    const publicationDateTo = elements.dateTo?.value || null;
+    let publicationDateFrom = elements.dateFrom?.value?.trim() || null;
+    let publicationDateTo = elements.dateTo?.value?.trim() || null;
     const country = elements.countryInput?.value?.trim() || null;
     const limit = parseInt(elements.pageSize?.value || '25');
+
+    // Force past broad if empty (avoid 0 total)
+    if (!publicationDateFrom) publicationDateFrom = '2024-10-01';
+    if (!publicationDateTo) publicationDateTo = new Date().toISOString().split('T')[0];
 
     return {
         filters: {

@@ -1,5 +1,5 @@
 """
-TED Scraper Backend - Финал: "" for all, notice-title ~ for text, simplified fallback to LATEST/ALL ""
+TED Scraper Backend - Финал: historical broad date fallback "(publication-date >= 19930101)", mandatory valid query
 """
 
 from fastapi import FastAPI, HTTPException
@@ -11,6 +11,7 @@ from typing import List, Optional
 import httpx
 import logging
 import os
+from datetime import datetime
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("tedapi")
@@ -66,6 +67,10 @@ async def read_root():
         raise HTTPException(status_code=404, detail="index.html not found")
     return FileResponse("index.html")
 
+def get_historical_broad():
+    """Broad date from TED start for match all"""
+    return "(publication-date >= 19930101)"
+
 @app.post("/search")
 async def search_notices(request: SearchRequest):
     try:
@@ -74,7 +79,7 @@ async def search_notices(request: SearchRequest):
         if request.filters:
             if request.filters.text:
                 text = request.filters.text.strip()
-                # Field-specific fuzzy for ALL scope (title OR buyer)
+                # Field-specific fuzzy for reliable matches
                 ft_term = f'(notice-title ~ {text} OR buyer-name ~ {text})'
                 query_terms.append(ft_term)
             
@@ -83,21 +88,34 @@ async def search_notices(request: SearchRequest):
             
             if request.filters.publication_date_from:
                 from_date = request.filters.publication_date_from.replace("-", "")
-                query_terms.append(f'(publication-date >= {from_date})')
-                has_date_filter = True
+                if from_date:
+                    query_terms.append(f'(publication-date >= {from_date})')
+                    has_date_filter = True
             
             if request.filters.publication_date_to:
                 to_date = request.filters.publication_date_to.replace("-", "")
-                query_terms.append(f'(publication-date <= {to_date})')
-                has_date_filter = True
+                if to_date:
+                    query_terms.append(f'(publication-date <= {to_date})')
+                    has_date_filter = True
         
-        expert_query = " AND ".join(query_terms) if query_terms else ""
+        # If no terms or only empty dates, use historical broad for all
+        if not query_terms or (has_date_filter and not request.filters.text and not request.filters.country):
+            expert_query = get_historical_broad()
+            if request.filters.text:
+                query_terms = [f'(notice-title ~ {request.filters.text.strip()} OR buyer-name ~ {request.filters.text.strip()})']
+            elif request.filters.country:
+                query_terms = [f'(country-of-buyer = {request.filters.country.upper()})']
+            else:
+                query_terms = []
+            if query_terms:
+                expert_query = f"{expert_query} AND " + " AND ".join(query_terms)
+        else:
+            expert_query = " AND ".join(query_terms)
         
-        logger.info(f"POST /search: query={expert_query or 'EMPTY (all lots)'}, page={request.page}, limit={request.limit}")
+        logger.info(f"POST /search: query={expert_query}, page={request.page}, limit={request.limit}")
         
-        # Always include "query" as string ("" for all)
         payload = {
-            "query": expert_query,
+            "query": expert_query,  # Always valid non-empty
             "page": max(1, request.page),
             "limit": min(100, max(1, request.limit)),
             "scope": "LATEST",
@@ -110,24 +128,34 @@ async def search_notices(request: SearchRequest):
             total = data.get("total", 0)
             logger.info(f"Initial total: {total} lots")
             
-            # Simplified fallback: If 0, try ALL with same query
+            # Fallback to ALL if 0
             if total == 0:
-                logger.info("Initial 0; retry ALL with same query")
+                logger.info("Initial 0; retry ALL")
                 payload["scope"] = "ALL"
                 response = await client.post(TED_API_URL, json=payload, timeout=120.0)
                 data = response.json()
                 total = data.get("total", 0)
                 logger.info(f"ALL total: {total} lots")
             
-            # If still 0, fallback to empty "" ALL (guaranteed lots)
+            # Final fallback: historical broad + terms if any
             if total == 0:
-                logger.info("Still 0; fallback to empty query ALL")
-                payload["query"] = ""
+                logger.info("Still 0; historical broad fallback")
+                historical = get_historical_broad()
+                if request.filters and (request.filters.text or request.filters.country):
+                    terms = []
+                    if request.filters.text:
+                        terms.append(f'(notice-title ~ {request.filters.text.strip()} OR buyer-name ~ {request.filters.text.strip()})')
+                    if request.filters.country:
+                        terms.append(f'(country-of-buyer = {request.filters.country.upper()})')
+                    expert_query = f"{historical} AND " + " AND ".join(terms)
+                else:
+                    expert_query = historical
+                payload["query"] = expert_query
                 payload["scope"] = "ALL"
                 response = await client.post(TED_API_URL, json=payload, timeout=120.0)
                 data = response.json()
                 total = data.get("total", 0)
-                logger.info(f"Empty all total: {total} lots")
+                logger.info(f"Historical fallback total: {total} lots")
         
         if response.status_code != 200:
             error_detail = response.json().get("message", response.text[:200]) if response.content else "No response"
