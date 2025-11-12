@@ -1,5 +1,5 @@
 """
-TED Scraper Backend - Фикс 400: правильные fields для TED API v3
+TED Scraper Backend - Фикс синтаксиса expert query: скобки для каждого условия
 """
 
 from fastapi import FastAPI, HTTPException
@@ -25,7 +25,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# API-роуты
 TED_API_URL = "https://api.ted.europa.eu/v3/notices/search"
 SUPPORTED_FIELDS = [
     "publication-number",
@@ -33,7 +32,7 @@ SUPPORTED_FIELDS = [
     "notice-title",
     "buyer-name",
     "buyer-country"
-]  # Валидные поля из TED API (без CONTENT)
+]  # Валидные поля (без изменений)
 
 class Filters(BaseModel):
     text: Optional[str] = None
@@ -73,15 +72,18 @@ async def search_notices(request: SearchRequest):
         query_parts = []
         if request.filters:
             if request.filters.text:
-                query_parts.append(f'({request.filters.text})')
+                query_parts.append(f'({request.filters.text})')  # Уже в ()
             if request.filters.country:
-                query_parts.append(f'country-of-buyer:{request.filters.country.upper()}')
+                # Оборачиваем страну в ()
+                query_parts.append(f'(country-of-buyer:{request.filters.country.upper()})')
             if request.filters.publication_date_from:
                 from_date = request.filters.publication_date_from.replace("-", "")  # YYYYMMDD
-                query_parts.append(f'publication-date>={from_date}')
+                # Оборачиваем дату в ()
+                query_parts.append(f'(publication-date>={from_date})')
             if request.filters.publication_date_to:
                 to_date = request.filters.publication_date_to.replace("-", "")  # YYYYMMDD
-                query_parts.append(f'publication-date<={to_date}')
+                # Оборачиваем дату в ()
+                query_parts.append(f'(publication-date<={to_date})')
         
         expert_query = " AND ".join(query_parts) if query_parts else "*"
         
@@ -92,7 +94,7 @@ async def search_notices(request: SearchRequest):
             "page": max(1, request.page),
             "limit": min(100, max(1, request.limit)),
             "scope": "LATEST",
-            "fields": SUPPORTED_FIELDS  # Теперь валидные поля
+            "fields": SUPPORTED_FIELDS
         }
         
         logger.info(f"🔍 TED API: query='{expert_query}', fields={SUPPORTED_FIELDS}")
@@ -105,7 +107,6 @@ async def search_notices(request: SearchRequest):
         if response.status_code != 200:
             try:
                 error_detail = response.json()
-                # Для 400: берём message для ясности
                 if response.status_code == 400:
                     detail = error_detail.get("message", str(error_detail))
                 else:
@@ -120,13 +121,12 @@ async def search_notices(request: SearchRequest):
         
         notices = []
         for item in data.get("results", []):
-            # Теперь поля напрямую в item (не в CONTENT)
             notice = Notice(
                 publication_number=item.get("publication-number", ""),
                 publication_date=item.get("publication-date"),
-                title=item.get("notice-title"),
-                buyer=item.get("buyer-name"),
-                country=item.get("buyer-country")
+                title=item.get("notice-title", "No title"),
+                buyer=item.get("buyer-name", "Unknown buyer"),
+                country=item.get("buyer-country", "Unknown")
             )
             notices.append(notice)
         
@@ -140,7 +140,7 @@ async def search_notices(request: SearchRequest):
         logger.error(f"Search error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# Static files на /static (CSS/JS)
+# Static files на /static
 app.mount("/static", StaticFiles(directory="."), name="static")
 
 if __name__ == "__main__":
