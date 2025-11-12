@@ -1,17 +1,16 @@
 """
-TED Scraper Backend - Исправленная версия с StaticFiles и /health
+TED Scraper Backend - Фикс 405 с /static для файлов
 """
 
-from fastapi import FastAPI, HTTPException, Form  # Добавлен Form для fallback
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles  # Для статических файлов
+from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 import httpx
 import logging
 import os
-from datetime import datetime
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("tedapi")
@@ -26,10 +25,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Монтируем статические файлы из текущей директории (index.html, style.css, script.js)
-app.mount("/", StaticFiles(directory=".", html=True), name="static")  # html=True для index.html на /
+# API-роуты ПЕРЕД static (приоритет)
+TED_API_URL = "https://api.ted.europa.eu/v3/notices/search"
+SUPPORTED_FIELDS = ["CONTENT"]
 
-# Модели (без изменений)
 class Filters(BaseModel):
     text: Optional[str] = None
     publication_date_from: Optional[str] = None
@@ -52,46 +51,17 @@ class SearchResponse(BaseModel):
     total: int
     notices: List[Notice]
 
-TED_API_URL = "https://api.ted.europa.eu/v3/notices/search"
-SUPPORTED_FIELDS = ["CONTENT"]  # Базовый агрегат для избежания ошибок
-
-# Health endpoint для мониторинга
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "TED Scraper"}
+    return {"status": "ok"}
 
-# Основной root — теперь через StaticFiles, но для совместимости
 @app.get("/")
 async def read_root():
-    return {"message": "TED Scraper API. Use / for frontend or /search for API."}
+    return FileResponse("index.html")  # Прямо отдаём index.html
 
-# JSON POST для JS (основной)
-@app.post("/search")
-async def search_notices_json(request: SearchRequest):
-    return await search_notices_impl(request)
-
-# Fallback для form-data (если JS не загрузился)
-@app.post("/search")
-async def search_notices_form(
-    text: Optional[str] = Form(None),
-    publication_date_from: Optional[str] = Form(None),
-    publication_date_to: Optional[str] = Form(None),
-    country: Optional[str] = Form(None),
-    page: int = Form(1),
-    limit: int = Form(25)
-):
-    filters_data = {}
-    if text: filters_data['text'] = text
-    if publication_date_from: filters_data['publication_date_from'] = publication_date_from
-    if publication_date_to: filters_data['publication_date_to'] = publication_date_to
-    if country: filters_data['country'] = country
-    request = SearchRequest(filters=Filters(**filters_data) if filters_data else None, page=page, limit=limit)
-    return await search_notices_impl(request)
-
-# Общая реализация поиска
-async def search_notices_impl(request: SearchRequest):
+@app.post("/search")  # POST для JSON от JS
+async def search_notices(request: SearchRequest):
     try:
-        # Строим expert query
         query_parts = []
         if request.filters:
             if request.filters.text:
@@ -117,25 +87,21 @@ async def search_notices_impl(request: SearchRequest):
             "fields": SUPPORTED_FIELDS
         }
         
-        logger.info(f"🔍 TED API: query='{expert_query}', fields={SUPPORTED_FIELDS}")
+        logger.info(f"🔍 TED API: query='{expert_query}'")
         
         async with httpx.AsyncClient() as client:
-            response = await client.post(TED_API_URL, json=payload, timeout=120.0)  # Увеличен timeout
+            response = await client.post(TED_API_URL, json=payload, timeout=120.0)
         
         logger.info(f"TED Response: {response.status_code}")
         
         if response.status_code != 200:
-            try:
-                error_detail = response.json()
-            except:
-                error_detail = {"detail": response.text[:200]}
+            error_detail = response.json() if 'application/json' in response.headers.get('content-type', '') else {"detail": response.text[:200]}
             logger.error(f"TED Error: {error_detail}")
             raise HTTPException(status_code=response.status_code, detail=f"TED API: {error_detail}")
         
         data = response.json()
         total = data.get("total", 0)
         
-        # Маппинг (упрощённый для CONTENT)
         notices = []
         for item in data.get("results", []):
             content = item.get("CONTENT", {})
@@ -143,8 +109,8 @@ async def search_notices_impl(request: SearchRequest):
                 publication_number=content.get("publicationNumber", str(item.get("id", ""))),
                 publication_date=content.get("publicationDate"),
                 title=content.get("title") or content.get("shortTitle", "No title"),
-                buyer=content.get("buyerName") or content.get("buyer", {}).get("name", "Unknown buyer"),
-                country=content.get("country") or content.get("buyer", {}).get("countryCode", "Unknown")
+                buyer=content.get("buyerName") or next((b.get("name") for b in content.get("buyers", [])), "Unknown"),
+                country=content.get("country") or next((b.get("countryCode") for b in content.get("buyers", [])), "Unknown")
             )
             notices.append(notice)
         
@@ -158,7 +124,10 @@ async def search_notices_impl(request: SearchRequest):
         logger.error(f"Search: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# Mount static ТОЛЬКО на /static (CSS/JS)
+app.mount("/static", StaticFiles(directory="."), name="static")
+
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", "8846"))
+    port = int(os.getenv("PORT", "8000"))
     uvicorn.run(app, host="0.0.0.0", port=port)
