@@ -1,5 +1,5 @@
 """
-TED Scraper Backend - Решение: Группировка в (), FT~, range [TO], = для equality
+TED Scraper Backend - Финальное решение: отдельные >=/<= с ( ), FT~, = для country
 """
 
 from fastapi import FastAPI, HTTPException
@@ -74,25 +74,26 @@ async def search_notices(request: SearchRequest):
             if request.filters.text:
                 text = request.filters.text.strip()
                 if ' ' in text:
-                    # Фраза: FT~"phrase" (fuzzy exact phrase)
-                    term = f'FT~"{text}"'
+                    # Фраза: FT~"phrase"
+                    ft_term = f'FT~"{text}"'
                 else:
-                    # Слово: FT~word (stemmed)
-                    term = f'FT~{text}'
-                query_terms.append(f'({term})')
+                    # Слово: FT~word
+                    ft_term = f'FT~{text}'
+                query_terms.append(f'({ft_term})')
             
             if request.filters.country:
-                # Country with = 
+                # Country = DEU
                 query_terms.append(f'(country-of-buyer={request.filters.country.upper()})')
             
-            if request.filters.publication_date_from or request.filters.publication_date_to:
-                from_date = request.filters.publication_date_from.replace("-", "") if request.filters.publication_date_from else "19000101"
-                to_date = request.filters.publication_date_to.replace("-", "") if request.filters.publication_date_to else "99991231"
-                # Range [TO]
-                date_term = f'(publication-date=[{from_date} TO {to_date}])'
-                query_terms.append(date_term)
+            if request.filters.publication_date_from:
+                from_date = request.filters.publication_date_from.replace("-", "")
+                query_terms.append(f'(publication-date >= {from_date})')
+            
+            if request.filters.publication_date_to:
+                to_date = request.filters.publication_date_to.replace("-", "")
+                query_terms.append(f'(publication-date <= {to_date})')
         
-        # Соединяем с AND, или * если пусто
+        # Если terms, join с AND; иначе *
         if query_terms:
             expert_query = " AND ".join(query_terms)
         else:
@@ -104,42 +105,33 @@ async def search_notices(request: SearchRequest):
             "query": expert_query,
             "page": max(1, request.page),
             "limit": min(100, max(1, request.limit)),
-            "scope": "LATEST",  # Или "ALL" для всех notices (уберите LATEST если total=0)
-            "fields": SUPPORTED_FIELDS,
-            "checkQuerySyntax": True  # Для debug: проверьте syntax без results; уберите после
+            "scope": "LATEST",
+            "fields": SUPPORTED_FIELDS
         }
         
-        logger.info(f"🔍 TED API: query='{expert_query}', fields={SUPPORTED_FIELDS}")
-        
+        # Fallback: Если LATEST даст 0, попробуйте ALL (исторические)
         async with httpx.AsyncClient() as client:
             response = await client.post(TED_API_URL, json=payload, timeout=120.0)
+            data = response.json()
+            total = data.get("total", 0)
+            if total == 0 and "LATEST" in payload["scope"]:
+                logger.info("LATEST gave 0; retry with ALL scope")
+                payload["scope"] = "ALL"
+                response = await client.post(TED_API_URL, json=payload, timeout=120.0)
+                data = response.json()
+                total = data.get("total", 0)
+                logger.info(f"ALL scope total: {total}")
         
         logger.info(f"TED Response: {response.status_code}")
         
         if response.status_code != 200:
             try:
                 error_detail = response.json()
-                if response.status_code == 400:
-                    detail = error_detail.get("message", str(error_detail))
-                else:
-                    detail = error_detail.get("detail", response.text[:200])
+                detail = error_detail.get("message", str(error_detail))
             except:
                 detail = response.text[:200]
             logger.error(f"TED Error ({response.status_code}): {detail}")
             raise HTTPException(status_code=response.status_code, detail=f"TED API error: {detail}")
-        
-        data = response.json()
-        # Если checkQuerySyntax, data может быть {"syntaxValid": true}, без results
-        if "checkQuerySyntax" in payload:
-            if data.get("syntaxValid", False):
-                logger.info("Query syntax valid")
-                del payload["checkQuerySyntax"]  # Повторить без check для results
-                response = await client.post(TED_API_URL, json=payload, timeout=120.0)
-                data = response.json()
-            else:
-                raise HTTPException(status_code=400, detail="Invalid query syntax")
-        
-        total = data.get("total", 0)
         
         notices = []
         for item in data.get("results", []):
