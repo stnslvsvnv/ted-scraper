@@ -1,10 +1,11 @@
 """
-TED Scraper Backend - Исправленная версия с фиксом ошибок
+TED Scraper Backend - Исправленная версия с StaticFiles и /health
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Form  # Добавлен Form для fallback
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse  # Добавлен импорт
+from fastapi.staticfiles import StaticFiles  # Для статических файлов
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import httpx
@@ -25,11 +26,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Модели
+# Монтируем статические файлы из текущей директории (index.html, style.css, script.js)
+app.mount("/", StaticFiles(directory=".", html=True), name="static")  # html=True для index.html на /
+
+# Модели (без изменений)
 class Filters(BaseModel):
     text: Optional[str] = None
-    publication_date_from: Optional[str] = None  # YYYY-MM-DD
-    publication_date_to: Optional[str] = None    # YYYY-MM-DD
+    publication_date_from: Optional[str] = None
+    publication_date_to: Optional[str] = None
     country: Optional[str] = None
 
 class SearchRequest(BaseModel):
@@ -49,31 +53,45 @@ class SearchResponse(BaseModel):
     notices: List[Notice]
 
 TED_API_URL = "https://api.ted.europa.eu/v3/notices/search"
-SUPPORTED_FIELDS = ["CONTENT"]  # Используем агрегат CONTENT для базового ответа без ошибок
+SUPPORTED_FIELDS = ["CONTENT"]  # Базовый агрегат для избежания ошибок
 
+# Health endpoint для мониторинга
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "TED Scraper"}
+
+# Основной root — теперь через StaticFiles, но для совместимости
 @app.get("/")
 async def read_root():
-    if not os.path.exists("index.html"):
-        raise HTTPException(status_code=404, detail="index.html not found")
-    return FileResponse("index.html")
+    return {"message": "TED Scraper API. Use / for frontend or /search for API."}
 
-# Добавим endpoints для статических файлов (css, js)
-@app.get("/style.css")
-async def get_css():
-    if not os.path.exists("style.css"):
-        raise HTTPException(status_code=404, detail="style.css not found")
-    return FileResponse("style.css")
-
-@app.get("/script.js")
-async def get_js():
-    if not os.path.exists("script.js"):
-        raise HTTPException(status_code=404, detail="script.js not found")
-    return FileResponse("script.js")
-
+# JSON POST для JS (основной)
 @app.post("/search")
-async def search_notices(request: SearchRequest):
+async def search_notices_json(request: SearchRequest):
+    return await search_notices_impl(request)
+
+# Fallback для form-data (если JS не загрузился)
+@app.post("/search")
+async def search_notices_form(
+    text: Optional[str] = Form(None),
+    publication_date_from: Optional[str] = Form(None),
+    publication_date_to: Optional[str] = Form(None),
+    country: Optional[str] = Form(None),
+    page: int = Form(1),
+    limit: int = Form(25)
+):
+    filters_data = {}
+    if text: filters_data['text'] = text
+    if publication_date_from: filters_data['publication_date_from'] = publication_date_from
+    if publication_date_to: filters_data['publication_date_to'] = publication_date_to
+    if country: filters_data['country'] = country
+    request = SearchRequest(filters=Filters(**filters_data) if filters_data else None, page=page, limit=limit)
+    return await search_notices_impl(request)
+
+# Общая реализация поиска
+async def search_notices_impl(request: SearchRequest):
     try:
-        # Строим expert query из filters
+        # Строим expert query
         query_parts = []
         if request.filters:
             if request.filters.text:
@@ -81,69 +99,66 @@ async def search_notices(request: SearchRequest):
             if request.filters.country:
                 query_parts.append(f'country-of-buyer:{request.filters.country.upper()}')
             if request.filters.publication_date_from:
-                from_date = request.filters.publication_date_from.replace("-", "")  # YYYYMMDD
+                from_date = request.filters.publication_date_from.replace("-", "")
                 query_parts.append(f'publication-date>={from_date}')
             if request.filters.publication_date_to:
-                to_date = request.filters.publication_date_to.replace("-", "")  # YYYYMMDD
+                to_date = request.filters.publication_date_to.replace("-", "")
                 query_parts.append(f'publication-date<={to_date}')
         
         expert_query = " AND ".join(query_parts) if query_parts else "*"
         
         logger.info(f"POST /search: query={expert_query}, page={request.page}, limit={request.limit}")
         
-        # Тело запроса к TED API
         payload = {
             "query": expert_query,
             "page": max(1, request.page),
-            "limit": min(100, max(1, request.limit)),  # Ограничения TED
+            "limit": min(100, max(1, request.limit)),
             "scope": "LATEST",
             "fields": SUPPORTED_FIELDS
         }
         
-        logger.info(f"🔍 Searching TED API: query='{expert_query}', page={request.page}, limit={request.limit}")
-        logger.info(f"Using {len(SUPPORTED_FIELDS)} fields: {SUPPORTED_FIELDS}")
+        logger.info(f"🔍 TED API: query='{expert_query}', fields={SUPPORTED_FIELDS}")
         
         async with httpx.AsyncClient() as client:
-            response = await client.post(TED_API_URL, json=payload, timeout=60.0)
+            response = await client.post(TED_API_URL, json=payload, timeout=120.0)  # Увеличен timeout
         
-        logger.info(f"📤 POST to {TED_API_URL}")
-        logger.info(f"📥 Status: {response.status_code}")
+        logger.info(f"TED Response: {response.status_code}")
         
         if response.status_code != 200:
             try:
                 error_detail = response.json()
             except:
-                error_detail = {"detail": response.text}
-            logger.error(f"❌ API Error: {error_detail}")
-            raise HTTPException(status_code=response.status_code, detail=f"TED API error: {error_detail}")
+                error_detail = {"detail": response.text[:200]}
+            logger.error(f"TED Error: {error_detail}")
+            raise HTTPException(status_code=response.status_code, detail=f"TED API: {error_detail}")
         
         data = response.json()
         total = data.get("total", 0)
         
-        # Маппинг результатов (адаптировано под реальные ключи TED API)
+        # Маппинг (упрощённый для CONTENT)
         notices = []
         for item in data.get("results", []):
-            # CONTENT возвращает структурированный объект, извлекаем базовые поля
             content = item.get("CONTENT", {})
             notice = Notice(
-                publication_number=content.get("publicationNumber", item.get("id", "")),
+                publication_number=content.get("publicationNumber", str(item.get("id", ""))),
                 publication_date=content.get("publicationDate"),
-                title=content.get("title", content.get("shortTitle")),
-                buyer=content.get("buyerName", content.get("buyer", {}).get("name")),
-                country=content.get("country", content.get("buyer", {}).get("countryCode"))
+                title=content.get("title") or content.get("shortTitle", "No title"),
+                buyer=content.get("buyerName") or content.get("buyer", {}).get("name", "Unknown buyer"),
+                country=content.get("country") or content.get("buyer", {}).get("countryCode", "Unknown")
             )
             notices.append(notice)
         
-        logger.info(f"Found {len(notices)} notices")
+        logger.info(f"Returned {len(notices)} notices out of {total}")
         return SearchResponse(total=total, notices=notices)
     
     except httpx.RequestError as e:
-        logger.error(f"TED API request error: {str(e)}")
-        raise HTTPException(status_code=502, detail=f"Connection error: {str(e)}")
+        logger.error(f"TED Connection: {e}")
+        raise HTTPException(status_code=502, detail=f"Connection: {str(e)}")
     except Exception as e:
-        logger.error(f"Search error: {str(e)}")
+        logger.error(f"Search: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8846)
+    port = int(os.getenv("PORT", "8846"))
+    uvicorn.run(app, host="0.0.0.0", port=port)
