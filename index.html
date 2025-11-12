@@ -122,16 +122,6 @@
                             <option value="AUT">Austria</option>
                             <option value="POL">Poland</option>
                             <option value="SWE">Sweden</option>
-                            <option value="DNK">Denmark</option>
-                            <option value="FIN">Finland</option>
-                            <option value="GRC">Greece</option>
-                            <option value="PRT">Portugal</option>
-                            <option value="CZE">Czech Republic</option>
-                            <option value="ROU">Romania</option>
-                            <option value="HUN">Hungary</option>
-                            <option value="BGR">Bulgaria</option>
-                            <option value="HRV">Croatia</option>
-                            <option value="SVN">Slovenia</option>
                         </select>
                     </div>
                 </div>
@@ -142,7 +132,6 @@
                         <label for="cpv">CPV Code</label>
                         <input type="text" id="cpv" class="form-control" 
                                placeholder="e.g., 72000000" value="">
-                        <small class="text-muted">Common Procurement Vocabulary</small>
                     </div>
                 </div>
 
@@ -154,7 +143,6 @@
                             <option value="10">10</option>
                             <option value="25" selected>25</option>
                             <option value="50">50</option>
-                            <option value="100">100</option>
                         </select>
                     </div>
                 </div>
@@ -201,9 +189,6 @@
                         <strong><span id="result-total">0</span></strong> results
                     </p>
                 </div>
-                <div>
-                    <span id="result-badge" class="status-badge bg-success text-white">Found</span>
-                </div>
             </div>
 
             <div class="table-responsive">
@@ -221,12 +206,6 @@
                     </tbody>
                 </table>
             </div>
-
-            <!-- Pagination -->
-            <nav id="pagination" style="display:none;" class="mt-4">
-                <ul class="pagination justify-content-center" id="pages">
-                </ul>
-            </nav>
         </div>
 
         <!-- No Results -->
@@ -238,9 +217,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        let currentPage = 1;
-        let currentData = null;
-
         // Set default dates (last year)
         window.addEventListener('DOMContentLoaded', () => {
             const today = new Date();
@@ -255,6 +231,17 @@
             if (e.key === 'Enter') search();
         });
 
+        function formatDateForAPI(dateString) {
+            /**
+             * Convert from YYYY-MM-DD to YYYYMMDD format
+             * IMPORTANT: TED API requires YYYYMMDD format (no dashes)
+             */
+            if (!dateString) return null;
+            
+            // Remove dashes: "2025-11-12" -> "20251112"
+            return dateString.replace(/-/g, '');
+        }
+
         function getSearchQuery() {
             const fulltext = document.getElementById('fulltext').value.trim();
             const country = document.getElementById('country').value;
@@ -267,8 +254,16 @@
             if (fulltext) query.push(fulltext);
             if (country) query.push(`place-of-performance:${country}`);
             if (cpv) query.push(`cpv-code:${cpv}`);
-            if (dateFrom) query.push(`publication-date>=${dateFrom}`);
-            if (dateTo) query.push(`publication-date<=${dateTo}`);
+            
+            // CRITICAL: Format dates as YYYYMMDD (no dashes!)
+            if (dateFrom) {
+                const formattedFrom = formatDateForAPI(dateFrom);
+                query.push(`publication-date>=${formattedFrom}`);
+            }
+            if (dateTo) {
+                const formattedTo = formatDateForAPI(dateTo);
+                query.push(`publication-date<=${formattedTo}`);
+            }
 
             return query.length > 0 ? query.join(' AND ') : '*';
         }
@@ -277,12 +272,12 @@
             const query = getSearchQuery();
             const limit = parseInt(document.getElementById('limit').value);
 
+            console.log('Query being sent:', query);
+            
             showLoading(true);
             showStatus('');
 
             try {
-                console.log('Searching:', query);
-
                 const response = await fetch(window.location.origin + '/search', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -300,8 +295,6 @@
                 }
 
                 const data = await response.json();
-                currentData = data;
-                currentPage = 1;
 
                 if (!data.results || data.results.length === 0) {
                     showEmpty();
@@ -328,7 +321,7 @@
             data.results.forEach(notice => {
                 const row = `<tr>
                     <td><code>${notice.publication_number}</code></td>
-                    <td>${notice.publication_date ? new Date(notice.publication_date).toLocaleDateString('en-US', {year: 'numeric', month: 'short', day: 'numeric'}) : '-'}</td>
+                    <td>${notice.publication_date ? new Date(notice.publication_date).toLocaleDateString() : '-'}</td>
                     <td><strong>${truncate(notice.title || '', 60)}</strong></td>
                     <td>${truncate(notice.buyer || '', 40)}</td>
                     <td>${notice.country || '-'}</td>
