@@ -1,308 +1,61 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TED Scraper</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        body { padding: 20px; background-color: #f8f9fa; }
-        .container { max-width: 1400px; }
-        .filters-panel { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .filter-group { margin-bottom: 15px; }
-        .filter-group label { font-weight: 600; margin-bottom: 5px; }
-        table { font-size: 13px; background: white; }
-        .results-panel { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .btn-search { padding: 10px 30px; font-weight: 600; }
-        .loading { display: none; text-align: center; padding: 40px; }
-        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 0 auto 10px; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-    </style>
+    <title>TED Tender Search</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="container">
-        <div class="mb-4">
-            <h1>🔍 TED European Tenders Search</h1>
-            <p class="text-muted">Search tender notices from the TED database</p>
-        </div>
-
-        <div class="filters-panel">
-            <h5 class="mb-4">Search Filters</h5>
+        <header>
+            <h1>Поиск тендеров в TED</h1>
+        </header>
+        
+        <div id="backend-status" class="status"></div>
+        
+        <form id="search-form">
+            <div class="form-group">
+                <label for="text">Текст поиска:</label>
+                <input type="text" id="text" placeholder="Введите ключевые слова">
+            </div>
             
-            <div class="row">
-                <div class="col-md-4">
-                    <div class="filter-group">
-                        <label for="fulltext">Keywords</label>
-                        <input type="text" id="fulltext" class="form-control" placeholder="e.g., engineering, IT services..." value="">
-                    </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="publication-date-from">Дата от (YYYY-MM-DD):</label>
+                    <input type="date" id="publication-date-from">
                 </div>
-                <div class="col-md-4">
-                    <div class="filter-group">
-                        <label for="dateFrom">Published From</label>
-                        <input type="date" id="dateFrom" class="form-control">
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="filter-group">
-                        <label for="dateTo">Published To</label>
-                        <input type="date" id="dateTo" class="form-control">
-                    </div>
+                <div class="form-group">
+                    <label for="publication-date-to">Дата до (YYYY-MM-DD):</label>
+                    <input type="date" id="publication-date-to">
                 </div>
             </div>
-
-            <div class="row">
-                <div class="col-md-4">
-                    <div class="filter-group">
-                        <label for="country">Country</label>
-                        <select id="country" class="form-select">
-                            <option value="">All Countries</option>
-                            <option value="DEU">Germany</option>
-                            <option value="FRA">France</option>
-                            <option value="ITA">Italy</option>
-                            <option value="ESP">Spain</option>
-                            <option value="NLD">Netherlands</option>
-                            <option value="BEL">Belgium</option>
-                            <option value="AUT">Austria</option>
-                            <option value="POL">Poland</option>
-                            <option value="SWE">Sweden</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="filter-group">
-                        <label for="limit">Results per Page</label>
-                        <select id="limit" class="form-select">
-                            <option value="10">10</option>
-                            <option value="25" selected>25</option>
-                            <option value="50">50</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="filter-group">
-                        <label>&nbsp;</label>
-                        <button class="btn btn-secondary w-100" onclick="clearFilters()">Clear</button>
-                    </div>
-                </div>
+            
+            <div class="form-group">
+                <label for="country">Страна:</label>
+                <input type="text" id="country" placeholder="Код страны, напр. DEU">
             </div>
-
-            <div class="mt-4 text-center">
-                <button class="btn btn-primary btn-search" onclick="search()">
-                    <span id="btn-text">🔍 Search</span>
-                    <span id="btn-loading" style="display:none;">
-                        <span class="spinner-border spinner-border-sm me-2"></span>Searching...
-                    </span>
-                </button>
+            
+            <button type="submit" id="search-btn">Поиск</button>
+        </form>
+        
+        <div id="search-status" class="status"></div>
+        
+        <div id="loading-spinner" class="spinner" style="display: none;">Загрузка...</div>
+        
+        <div id="error-alert" class="alert" style="display: none;"></div>
+        
+        <div id="results-container">
+            <div id="empty-state" style="display: none;">
+                <p>Результаты не найдены. Попробуйте изменить критерии поиска.</p>
             </div>
-        </div>
-
-        <div id="status" class="alert" style="display:none;"></div>
-
-        <div id="loading" class="loading">
-            <div class="spinner"></div>
-            <p>Searching TED database...</p>
-        </div>
-
-        <div id="results" class="results-panel" style="display:none;">
-            <h5 class="mb-3">Results: <span id="result-count">0</span> / <span id="result-total">0</span></h5>
-            <div class="table-responsive">
-                <table class="table table-hover">
-                    <thead class="table-light">
-                        <tr>
-                            <th>Publication #</th>
-                            <th>Date</th>
-                            <th>Title</th>
-                            <th>Buyer</th>
-                            <th>Country</th>
-                        </tr>
-                    </thead>
-                    <tbody id="tbody">
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <div id="empty" class="alert alert-info text-center" style="display:none;">
-            <h5>No results found</h5>
-            <p>Try adjusting your search criteria</p>
+            
+            <div id="results-list"></div>
+            
+            <div id="pagination"></div>
         </div>
     </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        // Set default dates
-        window.addEventListener('DOMContentLoaded', () => {
-            const today = new Date();
-            const lastYear = new Date(today.getFullYear() - 1, today.getMonth(), today.getDate());
-            
-            document.getElementById('dateFrom').valueAsDate = lastYear;
-            document.getElementById('dateTo').valueAsDate = today;
-        });
-
-        document.getElementById('fulltext').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') search();
-        });
-
-        /**
-         * FIX 2: Convert YYYY-MM-DD to YYYYMMDD
-         * Example: "2025-10-15" → "20251015"
-         */
-        function formatDateForAPI(dateString) {
-            if (!dateString) return null;
-            return dateString.replace(/-/g, '');
-        }
-
-        /**
-         * FIX 3: Build query string with proper date format and expert query syntax
-         * Example: "place-of-performance:DEU AND publication-date>=20251015 AND publication-date<=20251112"
-         */
-        function getSearchQuery() {
-            const fulltext = document.getElementById('fulltext').value.trim();
-            const country = document.getElementById('country').value;
-            const dateFrom = document.getElementById('dateFrom').value;
-            const dateTo = document.getElementById('dateTo').value;
-
-            let query = [];
-
-            if (fulltext) query.push(fulltext);
-            if (country) query.push(`place-of-performance:${country}`);
-            
-            // FIX 2: Convert dates to YYYYMMDD format (no dashes!)
-            if (dateFrom) {
-                const formattedFrom = formatDateForAPI(dateFrom);
-                query.push(`publication-date>=${formattedFrom}`);
-            }
-            if (dateTo) {
-                const formattedTo = formatDateForAPI(dateTo);
-                query.push(`publication-date<=${formattedTo}`);
-            }
-
-            console.log('Formatted query:', query.join(' AND '));
-            return query.length > 0 ? query.join(' AND ') : '*';
-        }
-
-        async function search() {
-            const query = getSearchQuery();
-            const limit = parseInt(document.getElementById('limit').value);
-
-            console.log('Sending query:', query);
-            
-            showLoading(true);
-            showStatus('');
-
-            try {
-                /**
-                 * FIX 4: Send { query, page, limit } format
-                 * Frontend builds the query string, backend just sends it to TED API
-                 */
-                const response = await fetch(window.location.origin + '/search', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        query: query,
-                        page: 1,
-                        limit: limit
-                    })
-                });
-
-                console.log('Response status:', response.status);
-
-                if (!response.ok) {
-                    const error = await response.text();
-                    showStatus(`Error ${response.status}: ${error}`, 'danger');
-                    return;
-                }
-
-                const data = await response.json();
-                console.log('Response:', data);
-
-                /**
-                 * FIX 5: Use data.results instead of data.notices
-                 * Backend returns { total, results } not { total, notices }
-                 */
-                if (!data.results || data.results.length === 0) {
-                    showEmpty();
-                    showStatus(`No results for: "${query}"`, 'info');
-                } else {
-                    displayResults(data);
-                    showStatus(
-                        `✓ Found ${data.total} results (showing ${data.results.length})`,
-                        'success'
-                    );
-                }
-            } catch (e) {
-                console.error('Error:', e);
-                showStatus(`Error: ${e.message}`, 'danger');
-            } finally {
-                showLoading(false);
-            }
-        }
-
-        function displayResults(data) {
-            const tbody = document.getElementById('tbody');
-            tbody.innerHTML = '';
-
-            data.results.forEach(notice => {
-                const row = `<tr>
-                    <td><code>${notice.publication_number}</code></td>
-                    <td>${notice.publication_date ? new Date(notice.publication_date).toLocaleDateString() : '-'}</td>
-                    <td><strong>${truncate(notice.title || '', 60)}</strong></td>
-                    <td>${truncate(notice.buyer || '', 40)}</td>
-                    <td>${notice.country || '-'}</td>
-                </tr>`;
-                tbody.innerHTML += row;
-            });
-
-            document.getElementById('result-count').textContent = data.results.length;
-            document.getElementById('result-total').textContent = data.total.toLocaleString();
-            document.getElementById('results').style.display = 'block';
-            document.getElementById('empty').style.display = 'none';
-        }
-
-        function showEmpty() {
-            document.getElementById('results').style.display = 'none';
-            document.getElementById('empty').style.display = 'block';
-        }
-
-        function showLoading(show) {
-            document.getElementById('loading').style.display = show ? 'block' : 'none';
-            document.getElementById('btn-text').style.display = show ? 'none' : 'inline';
-            document.getElementById('btn-loading').style.display = show ? 'inline' : 'none';
-        }
-
-        function showStatus(msg, type = 'info') {
-            const el = document.getElementById('status');
-            if (!msg) {
-                el.style.display = 'none';
-                return;
-            }
-            el.className = `alert alert-${type}`;
-            el.textContent = msg;
-            el.style.display = 'block';
-        }
-
-        function clearFilters() {
-            document.getElementById('fulltext').value = '';
-            document.getElementById('country').value = '';
-            document.getElementById('limit').value = '25';
-            
-            const today = new Date();
-            const lastYear = new Date(today.getFullYear() - 1, today.getMonth(), today.getDate());
-            document.getElementById('dateFrom').valueAsDate = lastYear;
-            document.getElementById('dateTo').valueAsDate = today;
-            
-            showStatus('Filters cleared', 'info');
-        }
-
-        function truncate(str, len) {
-            return str.length > len ? str.substring(0, len) + '...' : str;
-        }
-
-        // Auto-search on load
-        window.addEventListener('load', () => {
-            console.log('Page loaded');
-            search();
-        });
-    </script>
+    
+    <script src="script.js"></script>
 </body>
 </html>
