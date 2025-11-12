@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TED Tender Search</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="/static/style.css">  <!-- Обязательно /static/ -->
 </head>
 <body>
     <div class="container">
@@ -17,23 +17,23 @@
         <form id="search-form">
             <div class="form-group">
                 <label for="text">Текст поиска:</label>
-                <input type="text" id="text" placeholder="Введите ключевые слова">
+                <input type="text" id="text" name="text" placeholder="Введите ключевые слова">
             </div>
             
             <div class="form-row">
                 <div class="form-group">
                     <label for="publication-date-from">Дата от (YYYY-MM-DD):</label>
-                    <input type="date" id="publication-date-from">
+                    <input type="date" id="publication-date-from" name="publication_date_from">
                 </div>
                 <div class="form-group">
                     <label for="publication-date-to">Дата до (YYYY-MM-DD):</label>
-                    <input type="date" id="publication-date-to">
+                    <input type="date" id="publication-date-to" name="publication_date_to">
                 </div>
             </div>
             
             <div class="form-group">
                 <label for="country">Страна:</label>
-                <input type="text" id="country" placeholder="Код страны, напр. DEU">
+                <input type="text" id="country" name="country" placeholder="Код страны, напр. DEU">
             </div>
             
             <button type="submit" id="search-btn">Поиск</button>
@@ -56,6 +56,6 @@
         </div>
     </div>
     
-    <script src="script.js"></script>
+    <script src="/static/script.js"></script>  <!-- Обязательно /static/ -->
 </body>
 </html>
