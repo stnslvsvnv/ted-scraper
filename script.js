@@ -291,7 +291,7 @@ function showNoResults() {
     if (elements.emptyState) {
         elements.emptyState.innerHTML = `
             <p>Результаты не найдены.</p>
-            <p>Попробуйте: <button type="button" onclick="clearForm()" class="btn btn-sm btn-outline-primary">Очистить фильтры</button> для последних 25, или расширьте даты с 2024-10-01. Добавьте text="computer" или country="DEU".</p>
+            <p>Попробуйте: <button type="button" onclick="clearForm()" class="btn btn-sm btn-outline-primary">Очистить фильтры</button> для последних 25, или расширьте даты с 2024-10-01. Добавьте text="computer" или country="DEU". Если 0 — проверьте API key в backend.</p>
         `;
         elements.emptyState.style.display = 'block';
     }
