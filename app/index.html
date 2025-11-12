@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TED Tender Search</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Поиск тендеров в TED</h1>
+        </header>
+        
+        <div id="backend-status" class="status"></div>
+        
+        <form id="search-form">
+            <div class="form-group">
+                <label for="text">Текст поиска:</label>
+                <input type="text" id="text" placeholder="Введите ключевые слова">
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="publication-date-from">Дата от (YYYY-MM-DD):</label>
+                    <input type="date" id="publication-date-from">
+                </div>
+                <div class="form-group">
+                    <label for="publication-date-to">Дата до (YYYY-MM-DD):</label>
+                    <input type="date" id="publication-date-to">
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="country">Страна:</label>
+                <input type="text" id="country" placeholder="Код страны, напр. DEU">
+            </div>
+            
+            <button type="submit" id="search-btn">Поиск</button>
+        </form>
+        
+        <div id="search-status" class="status"></div>
+        
+        <div id="loading-spinner" class="spinner" style="display: none;">Загрузка...</div>
+        
+        <div id="error-alert" class="alert" style="display: none;"></div>
+        
+        <div id="results-container">
+            <div id="empty-state" style="display: none;">
+                <p>Результаты не найдены. Попробуйте изменить критерии поиска.</p>
+            </div>
+            
+            <div id="results-list"></div>
+            
+            <div id="pagination"></div>
+        </div>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html>

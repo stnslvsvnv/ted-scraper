@@ -1,0 +1,18 @@
+version: '3.8'
+services:
+  ted-scraper:
+    build:
+      context: https://github.com/stnslvsvnv/ted-scraper.git#main
+      dockerfile: Dockerfile
+    container_name: ted-scraper
+    ports:
+      - "8846:8846"
+    environment:
+      - LOG_LEVEL=info
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8846/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
