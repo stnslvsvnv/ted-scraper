@@ -1,6 +1,6 @@
 """
-TED Scraper Backend - ПРОСТОЙ И РАБОЧИЙ
-Tested with TED API directly
+TED Scraper Backend - FINAL WORKING VERSION
+Using SUPPORTED fields only
 """
 
 from fastapi import FastAPI, HTTPException
@@ -71,23 +71,25 @@ async def search_ted_api(query: str = "*", page: int = 1, limit: int = 10) -> Di
     """
     Direct call to TED API v3.0
     
-    Based on official TED API documentation:
-    - Endpoint: https://api.ted.europa.eu/v3/notices/search
-    - Method: POST
-    - Required fields: query, fields (must not be empty!)
+    IMPORTANT: Using ONLY SUPPORTED field names!
     """
     
     logger.info(f"🔍 Searching TED API: query='{query}', page={page}, limit={limit}")
     
-    # Fields are REQUIRED by TED API!
+    # These are SUPPORTED fields according to TED API
+    # (list provided by API in error message)
     fields = [
-        "publication-number",
-        "notice-title",
+        "BT-13(t)-Part",
+        "BT-271-Procedure",
+        "BT-02-Procedure",
+        "BT-04-Procedure-Buyer",
+        "BT-500-Procedure-Framework",
+        "BT-809-Lot",
+        "organisation-name",
         "buyer-name",
+        "notice-title",
         "publication-date",
-        "notice-type",
-        "cpv-code",
-        "place-of-performance"
+        "publication-number"
     ]
     
     payload = {
