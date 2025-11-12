@@ -1,5 +1,5 @@
 """
-TED Scraper Backend - Fixed version with correct scope parameter
+TED Scraper Backend - Fixed version with correct response parsing
 """
 
 from fastapi import FastAPI, HTTPException
@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import httpx
 import logging
 import os
@@ -73,8 +73,23 @@ async def read_root():
 def get_historical_broad():
     return "(publication-date >= 19930101)"
 
-def get_test_query():
-    return "buyer-country = EU"
+def extract_multilang_field(field_value: Any, default: str = "N/A") -> str:
+    """
+    Извлекает значение из многоязычного поля.
+    API может возвращать строку или словарь типа {"eng": ["value1"], "fra": ["value2"]}
+    """
+    if isinstance(field_value, str):
+        return field_value
+    elif isinstance(field_value, dict):
+        # Берем первый доступный язык
+        for lang_values in field_value.values():
+            if isinstance(lang_values, list) and lang_values:
+                return lang_values[0]
+            elif isinstance(lang_values, str):
+                return lang_values
+    elif isinstance(field_value, list) and field_value:
+        return field_value[0] if isinstance(field_value[0], str) else str(field_value[0])
+    return default
 
 @app.post("/search")
 async def search_notices(request: SearchRequest):
@@ -107,7 +122,6 @@ async def search_notices(request: SearchRequest):
         
         logger.info(f"POST /search: query={expert_query}, page={request.page}, limit={request.limit}")
         
-        # КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: убран параметр scope полностью
         payload = {
             "query": expert_query,
             "page": max(1, request.page),
@@ -124,7 +138,6 @@ async def search_notices(request: SearchRequest):
             response = await client.post(TED_API_URL, json=payload, timeout=120.0)
             
             logger.info(f"Response status: {response.status_code}")
-            logger.info(f"Response body: {response.text[:500]}")
             
             if response.status_code != 200:
                 error_detail = response.json().get("message", response.text[:200]) if response.content else "No response"
@@ -132,17 +145,25 @@ async def search_notices(request: SearchRequest):
                 raise HTTPException(status_code=response.status_code, detail=f"TED API error: {error_detail}")
             
             data = response.json()
-            total = data.get("total", 0)
+            
+            # ИСПРАВЛЕНО: API возвращает 'notices', а не 'results'
+            notices_data = data.get("notices", [])
+            
+            # ИСПРАВЛЕНО: total может отсутствовать, считаем через len()
+            total = data.get("total", len(notices_data))
+            
             logger.info(f"Total results: {total} notices")
+            logger.info(f"Received {len(notices_data)} notices in response")
             
             notices = []
-            for item in data.get("results", []):
+            for item in notices_data:
+                # ИСПРАВЛЕНО: обработка многоязычных полей
                 notice = Notice(
                     publication_number=item.get("publication-number", "N/A"),
                     publication_date=item.get("publication-date"),
-                    title=item.get("notice-title", "No title"),
-                    buyer=item.get("buyer-name", "Unknown buyer"),
-                    country=item.get("buyer-country", "Unknown")
+                    title=extract_multilang_field(item.get("notice-title"), "No title"),
+                    buyer=extract_multilang_field(item.get("buyer-name"), "Unknown buyer"),
+                    country=extract_multilang_field(item.get("buyer-country"), "Unknown")
                 )
                 notices.append(notice)
             
