@@ -33,13 +33,51 @@
         </div>
 
         <div class="form-group">
-            <label for="country-search">Страны (несколько, с поиском):</label>
-            <input type="text" id="country-search" class="form-control" placeholder="Поиск стран по коду или названию">
-            <select id="country-select" multiple size="6" class="form-control">
-                <!-- наполняется в script.js -->
+            <label for="country">Страна (можно несколько):</label>
+            <select id="country" name="country" multiple size="6" class="form-control">
+                <!-- список стран из документации TED (ISO alpha-3) -->
+                <option value="">— не выбрано —</option>
+                <option value="ALB">ALB — Albania</option>
+                <option value="AND">AND — Andorra</option>
+                <option value="AUT">AUT — Austria</option>
+                <option value="BEL">BEL — Belgium</option>
+                <option value="BGR">BGR — Bulgaria</option>
+                <option value="CHE">CHE — Switzerland</option>
+                <option value="CYP">CYP — Cyprus</option>
+                <option value="CZE">CZE — Czechia</option>
+                <option value="DEU">DEU — Germany</option>
+                <option value="DNK">DNK — Denmark</option>
+                <option value="ESP">ESP — Spain</option>
+                <option value="EST">EST — Estonia</option>
+                <option value="FIN">FIN — Finland</option>
+                <option value="FRA">FRA — France</option>
+                <option value="GBR">GBR — United Kingdom</option>
+                <option value="GRC">GRC — Greece</option>
+                <option value="HRV">HRV — Croatia</option>
+                <option value="HUN">HUN — Hungary</option>
+                <option value="IRL">IRL — Ireland</option>
+                <option value="ISL">ISL — Iceland</option>
+                <option value="ITA">ITA — Italy</option>
+                <option value="LIE">LIE — Liechtenstein</option>
+                <option value="LTU">LTU — Lithuania</option>
+                <option value="LUX">LUX — Luxembourg</option>
+                <option value="LVA">LVA — Latvia</option>
+                <option value="MLT">MLT — Malta</option>
+                <option value="MNE">MNE — Montenegro</option>
+                <option value="NLD">NLD — Netherlands</option>
+                <option value="NOR">NOR — Norway</option>
+                <option value="POL">POL — Poland</option>
+                <option value="PRT">PRT — Portugal</option>
+                <option value="ROU">ROU — Romania</option>
+                <option value="SRB">SRB — Serbia</option>
+                <option value="SVK">SVK — Slovakia</option>
+                <option value="SVN">SVN — Slovenia</option>
+                <option value="SWE">SWE — Sweden</option>
+                <option value="UKR">UKR — Ukraine</option>
+                <option value="XKX">XKX — Kosovo</option>
             </select>
             <small class="form-text">
-                Зажмите Ctrl / Cmd для выбора нескольких стран. Коды: DEU — Germany, FRA — France и т.д.
+                Используй Ctrl / Cmd для выбора нескольких стран. Коды совпадают с buyer-country в TED.
             </small>
         </div>
 
@@ -55,7 +93,6 @@
 
         <div class="form-actions">
             <button type="submit" id="search-btn" class="btn btn-primary">Поиск</button>
-            <button type="button" id="clear-btn" class="btn btn-secondary">Очистить</button>
         </div>
     </form>
 
@@ -64,7 +101,18 @@
     <div id="loading-spinner" class="spinner" style="display:none;">Загрузка...</div>
 
     <div id="results-container" style="display:none;">
-        <div id="results-list"></div>
+        <table class="table">
+            <thead>
+            <tr>
+                <th>Номер публикации</th>
+                <th>Дата</th>
+                <th>Заголовок</th>
+                <th>Покупатель</th>
+                <th>Страна</th>
+            </tr>
+            </thead>
+            <tbody id="results-tbody"></tbody>
+        </table>
         <div id="pagination"></div>
     </div>
 
