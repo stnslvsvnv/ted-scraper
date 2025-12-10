@@ -1,4 +1,4 @@
-/* TED Scraper Frontend + Slim Select */
+/* TED Scraper Frontend – мультивыбор стран без библиотек */
 
 const CONFIG = {
     BACKEND_BASE_URL: window.location.origin,
@@ -45,100 +45,140 @@ const CONFIG = {
     ]
 };
 
-let currentSearchData = null;
 let currentPage = 1;
-let countrySlim = null;
+let currentSearchData = null;
+let selectedCountries = new Set();
 
-const elements = {
+const el = {
     searchForm: document.getElementById('search-form'),
     textInput: document.getElementById('text'),
     dateFrom: document.getElementById('publication-date-from'),
     dateTo: document.getElementById('publication-date-to'),
-    countrySelect: document.getElementById('country-select'),
     pageSize: document.getElementById('page-size'),
     searchBtn: document.getElementById('search-btn'),
     clearBtn: document.getElementById('clear-btn'),
     backendStatus: document.getElementById('backend-status'),
     resultsContainer: document.getElementById('results-container'),
-    resultsTbody: document.getElementById('results-tbody'),
+    resultsList: document.getElementById('results-list'),
+    pagination: document.getElementById('pagination'),
     emptyState: document.getElementById('empty-state'),
     loadingSpinner: document.getElementById('loading-spinner'),
     errorAlert: document.getElementById('error-alert'),
-    searchStatus: document.getElementById('search-status')
+    searchStatus: document.getElementById('search-status'),
+    countrySearch: document.getElementById('country-search'),
+    countryDropdownList: document.getElementById('country-dropdown-list'),
+    countryTags: document.getElementById('country-selected-tags')
 };
 
 document.addEventListener('DOMContentLoaded', () => {
-    setupCountries();
-    setupSlimSelect();
-    setupEventListeners();
+    initCountryDropdown();
+    setupEvents();
     checkBackendStatus();
     setDefaultDates();
+    performSearch();
 });
 
-// инициализация списка стран (опции <option>)
-function setupCountries() {
-    if (!elements.countrySelect) return;
-    elements.countrySelect.innerHTML = CONFIG.COUNTRIES
-        .map(c => `<option value="${c.code}">${c.code} — ${c.name}</option>`)
-        .join('');
-}
-
-// инициализация Slim Select
-function setupSlimSelect() {
-    if (!elements.countrySelect) return;
-    countrySlim = new SlimSelect({
-        select: '#country-select',
-        settings: {
-            placeholderText: 'Выберите страны',
-            searchPlaceholder: 'Поиск...',
-            searchText: 'Ничего не найдено',
-            closeOnSelect: false,
-            hideSelected: true,
-            allowDeselect: true
-        }
-    });
-
-    // по умолчанию несколько популярных стран
-    countrySlim.setSelected(['DEU', 'FRA', 'ITA', 'ESP', 'NLD']);
-}
-
-function setupEventListeners() {
-    if (elements.searchForm) {
-        elements.searchForm.addEventListener('submit', (e) => {
+function setupEvents() {
+    if (el.searchForm) {
+        el.searchForm.addEventListener('submit', e => {
             e.preventDefault();
             currentPage = 1;
             performSearch();
         });
     }
-    if (elements.clearBtn) {
-        elements.clearBtn.addEventListener('click', clearForm);
+    if (el.clearBtn) {
+        el.clearBtn.addEventListener('click', () => {
+            el.textInput.value = '';
+            selectedCountries.clear();
+            refreshCountryUI();
+            setDefaultDates();
+            el.pageSize.value = '25';
+        });
+    }
+    if (el.countrySearch) {
+        el.countrySearch.addEventListener('input', () => {
+            filterCountryDropdown(el.countrySearch.value.trim().toLowerCase());
+        });
     }
 }
 
 function setDefaultDates() {
     const today = new Date();
     const fromDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-    const fromStr = fromDate.toISOString().split('T')[0];
-    const toStr = today.toISOString().split('T')[0];
-    if (elements.dateFrom) elements.dateFrom.value = fromStr;
-    if (elements.dateTo) elements.dateTo.value = toStr;
+    el.dateFrom.value = fromDate.toISOString().split('T')[0];
+    el.dateTo.value = today.toISOString().split('T')[0];
 }
 
-function clearForm() {
-    if (elements.textInput) elements.textInput.value = '';
-    if (countrySlim) countrySlim.setSelected([]);
-    if (elements.pageSize) elements.pageSize.value = '25';
-    setDefaultDates();
-    currentPage = 1;
+/* ---------- мультиселект стран ---------- */
+
+function initCountryDropdown() {
+    el.countryDropdownList.innerHTML = '';
+    CONFIG.COUNTRIES.forEach(c => {
+        const item = document.createElement('label');
+        item.className = 'country-item';
+        item.innerHTML = `
+            <input type="checkbox" value="${c.code}">
+            <span class="country-code">${c.code}</span>
+            <span class="country-name">${c.name}</span>
+        `;
+        const checkbox = item.querySelector('input');
+        checkbox.addEventListener('change', () => {
+            if (checkbox.checked) selectedCountries.add(c.code);
+            else selectedCountries.delete(c.code);
+            refreshCountryUI();
+        });
+        el.countryDropdownList.appendChild(item);
+    });
+
+    // по умолчанию DEU, FRA
+    selectedCountries.add('DEU');
+    selectedCountries.add('FRA');
+    refreshCountryUI();
 }
+
+function filterCountryDropdown(term) {
+    const items = el.countryDropdownList.querySelectorAll('.country-item');
+    items.forEach(item => {
+        const text = item.textContent.toLowerCase();
+        item.style.display = text.includes(term) ? '' : 'none';
+    });
+}
+
+function refreshCountryUI() {
+    // Чекбоксы
+    el.countryDropdownList.querySelectorAll('input[type="checkbox"]').forEach(ch => {
+        ch.checked = selectedCountries.has(ch.value);
+    });
+
+    // Теги выбранных
+    el.countryTags.innerHTML = '';
+    if (selectedCountries.size === 0) {
+        el.countryTags.innerHTML = '<span class="country-tag country-tag--empty">Страны не выбраны</span>';
+        return;
+    }
+    CONFIG.COUNTRIES.forEach(c => {
+        if (selectedCountries.has(c.code)) {
+            const tag = document.createElement('span');
+            tag.className = 'country-tag';
+            tag.textContent = `${c.code} — ${c.name}`;
+            tag.addEventListener('click', () => {
+                selectedCountries.delete(c.code);
+                refreshCountryUI();
+            });
+            el.countryTags.appendChild(tag);
+        }
+    });
+}
+
+/* ---------- backend статус ---------- */
 
 async function checkBackendStatus() {
     try {
-        const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/health`);
-        if (response.ok) {
-            elements.backendStatus.textContent = 'Online';
-            elements.backendStatus.classList.remove('bg-danger', 'bg-secondary');
-            elements.backendStatus.classList.add('bg-success');
+        const r = await fetch(`${CONFIG.BACKEND_BASE_URL}/health`);
+        if (r.ok) {
+            el.backendStatus.textContent = 'Online';
+            el.backendStatus.classList.remove('bg-danger');
+            el.backendStatus.classList.add('bg-success');
         } else setBackendOffline();
     } catch {
         setBackendOffline();
@@ -147,31 +187,34 @@ async function checkBackendStatus() {
 }
 
 function setBackendOffline() {
-    elements.backendStatus.textContent = 'Offline';
-    elements.backendStatus.classList.remove('bg-success', 'bg-secondary');
-    elements.backendStatus.classList.add('bg-danger');
+    el.backendStatus.textContent = 'Offline';
+    el.backendStatus.classList.remove('bg-success');
+    el.backendStatus.classList.add('bg-danger');
 }
 
-// формирование тела запроса
+/* ---------- поиск ---------- */
+
 function getSearchRequest() {
-    const selectedCountries = countrySlim ? countrySlim.getSelected() : [];
+    const text = el.textInput.value.trim() || null;
+    const publicationDateFrom = el.dateFrom.value.trim() || null;
+    const publicationDateTo = el.dateTo.value.trim() || null;
+    const country = selectedCountries.size ? Array.from(selectedCountries).join(',') : null;
+    const limit = parseInt(el.pageSize.value || '25');
+
     return {
-        filters: {
-            text: elements.textInput?.value?.trim() || null,
-            publication_date_from: elements.dateFrom?.value?.trim() || null,
-            publication_date_to: elements.dateTo?.value?.trim() || null,
-            country: selectedCountries.length ? selectedCountries.join(',') : null
-        },
+        filters: { text, publication_date_from: publicationDateFrom, publication_date_to: publicationDateTo, country },
         page: currentPage,
-        limit: parseInt(elements.pageSize?.value || '25')
+        limit
     };
 }
 
 async function performSearch() {
     try {
-        elements.searchBtn.disabled = true;
-        elements.loadingSpinner.style.display = 'block';
-        hideEmptyState(); hideResults(); hideError();
+        el.searchBtn.disabled = true;
+        el.loadingSpinner.style.display = 'block';
+        hideError();
+        hideEmptyState();
+        hideResults();
         showStatus('Поиск...');
 
         const request = getSearchRequest();
@@ -182,74 +225,105 @@ async function performSearch() {
         });
 
         if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.detail || `HTTP ${response.status}`);
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.detail || `HTTP ${response.status}`);
         }
 
         const data = await response.json();
         currentSearchData = data;
-        displayResults(data);
+        renderResults(data);
 
-        elements.searchStatus.classList.remove('alert-warning', 'alert-info');
-        elements.searchStatus.classList.add('alert-success');
-        elements.searchStatus.innerHTML = `Найдено: <strong>${data.total}</strong> результатов`;
-        elements.searchStatus.style.display = 'block';
+        el.searchStatus.className = 'alert alert-success';
+        el.searchStatus.textContent = `Найдено: ${data.total}`;
+        el.searchStatus.style.display = 'block';
 
     } catch (e) {
         showError(`Ошибка поиска: ${e.message}`);
     } finally {
-        elements.searchBtn.disabled = false;
-        elements.loadingSpinner.style.display = 'none';
+        el.searchBtn.disabled = false;
+        el.loadingSpinner.style.display = 'none';
     }
 }
 
-function displayResults(data) {
+function renderResults(data) {
     if (!data.notices || data.notices.length === 0) {
         showNoResults();
         return;
     }
 
-    elements.resultsContainer.style.display = 'block';
-    elements.resultsTbody.innerHTML = '';
+    el.resultsContainer.style.display = 'block';
+    el.resultsList.innerHTML = '';
+
+    const table = document.createElement('table');
+    table.className = 'table';
+    table.innerHTML = `
+        <thead>
+        <tr>
+            <th>Номер публикации</th>
+            <th>Дата</th>
+            <th>Заголовок</th>
+            <th>Покупатель</th>
+            <th>Страна</th>
+        </tr>
+        </thead>
+        <tbody></tbody>
+    `;
+    const tbody = table.querySelector('tbody');
 
     data.notices.forEach(n => {
-        const row = document.createElement('tr');
-        const pubNum = n.publication_number || 'N/A';
-        const date = n.publication_date ? new Date(n.publication_date).toLocaleDateString('ru-RU') : '-';
-        const title = n.title || 'Нет заголовка';
-        const buyer = n.buyer || 'Неизвестный';
-        const country = n.country || '-';
-        row.innerHTML = `
-            <td>${pubNum}</td>
-            <td>${date}</td>
-            <td>${title}</td>
-            <td>${buyer}</td>
-            <td>${country}</td>
+        const tr = document.createElement('tr');
+        const dateStr = n.publication_date ? new Date(n.publication_date).toLocaleDateString('ru-RU') : '-';
+        tr.innerHTML = `
+            <td>${n.publication_number || 'N/A'}</td>
+            <td>${dateStr}</td>
+            <td>${n.title || 'Нет заголовка'}</td>
+            <td>${n.buyer || 'Неизвестный'}</td>
+            <td>${n.country || '-'}</td>
         `;
-        elements.resultsTbody.appendChild(row);
+        tbody.appendChild(tr);
     });
+
+    el.resultsList.appendChild(table);
+    renderPagination(data.total, data.notices.length);
 }
 
+function renderPagination(total, perPage) {
+    el.pagination.innerHTML = '';
+    if (!total || total <= perPage) return;
+
+    const totalPages = Math.ceil(total / perPage);
+    for (let i = 1; i <= Math.min(totalPages, 5); i++) {
+        const btn = document.createElement('button');
+        btn.className = 'page-link';
+        btn.textContent = i;
+        if (i === currentPage) btn.classList.add('active');
+        btn.addEventListener('click', () => {
+            currentPage = i;
+            performSearch();
+        });
+        el.pagination.appendChild(btn);
+    }
+}
+
+/* ---------- вспомогательные ---------- */
+
 function showNoResults() {
-    elements.emptyState.style.display = 'block';
-    elements.resultsContainer.style.display = 'none';
+    el.emptyState.style.display = 'block';
+    el.resultsContainer.style.display = 'none';
 }
 
 function showError(msg) {
-    elements.errorAlert.textContent = msg;
-    elements.errorAlert.style.display = 'block';
-    elements.errorAlert.classList.add('alert-danger');
+    el.errorAlert.textContent = msg;
+    el.errorAlert.className = 'alert alert-danger';
+    el.errorAlert.style.display = 'block';
 }
 
-function hideEmptyState() { elements.emptyState.style.display = 'none'; }
-function hideResults() { elements.resultsContainer.style.display = 'none'; }
-function hideError() {
-    elements.errorAlert.style.display = 'none';
-    elements.errorAlert.classList.remove('alert-danger');
-}
+function hideError() { el.errorAlert.style.display = 'none'; }
+function hideEmptyState() { el.emptyState.style.display = 'none'; }
+function hideResults() { el.resultsContainer.style.display = 'none'; }
+
 function showStatus(msg) {
-    elements.searchStatus.textContent = msg;
-    elements.searchStatus.style.display = 'block';
-    elements.searchStatus.classList.remove('alert-success', 'alert-warning');
-    elements.searchStatus.classList.add('alert-info');
+    el.searchStatus.textContent = msg;
+    el.searchStatus.className = 'alert alert-info';
+    el.searchStatus.style.display = 'block';
 }
