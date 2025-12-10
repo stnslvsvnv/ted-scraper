@@ -34,9 +34,15 @@
                     <input type="date" class="form-control" id="publication-date-to">
                 </div>
                 
-                <div class="col-md-4">
-                    <label for="country" class="form-label">Страна:</label>
-                    <input type="text" class="form-control" id="country" placeholder="Например: DEU, FRA">
+                <div class="col-md-6">
+                    <label for="country-select" class="form-label">Страны (выберите несколько):</label>
+                    <div class="position-relative">
+                        <select multiple id="country-select" class="form-select" size="4" style="height: 120px;">
+                            <!-- Страны будут загружены динамически -->
+                        </select>
+                        <input type="text" id="country-search" class="form-control mt-1" placeholder="Поиск стран...">
+                    </div>
+                    <small class="text-muted">Ctrl+Click для выбора нескольких</small>
                 </div>
                 
                 <div class="col-md-2">
@@ -49,9 +55,12 @@
                     </select>
                 </div>
                 
-                <div class="col-md-6">
+                <div class="col-md-4">
                     <label class="form-label">&nbsp;</label>
-                    <button type="submit" id="search-btn" class="btn btn-primary w-100">Поиск</button>
+                    <div class="d-flex gap-2">
+                        <button type="submit" id="search-btn" class="btn btn-primary flex-fill">Поиск</button>
+                        <button type="button" id="clear-btn" class="btn btn-outline-secondary">Очистить</button>
+                    </div>
                 </div>
             </div>
         </form>
