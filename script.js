@@ -1,11 +1,10 @@
-/* TED Scraper Frontend – мультивыбор стран без библиотек */
+/* TED Scraper Frontend – простая стабильная версия */
 
 const CONFIG = {
     BACKEND_BASE_URL: window.location.origin,
     REQUEST_TIMEOUT: 30000,
     COUNTRIES: [
         {code: 'ALB', name: 'Albania'},
-        {code: 'AND', name: 'Andorra'},
         {code: 'AUT', name: 'Austria'},
         {code: 'BEL', name: 'Belgium'},
         {code: 'BGR', name: 'Bulgaria'},
@@ -45,15 +44,16 @@ const CONFIG = {
     ]
 };
 
-let currentPage = 1;
 let currentSearchData = null;
-let selectedCountries = new Set();
+let currentPage = 1;
 
 const el = {
     searchForm: document.getElementById('search-form'),
     textInput: document.getElementById('text'),
     dateFrom: document.getElementById('publication-date-from'),
     dateTo: document.getElementById('publication-date-to'),
+    countrySelect: document.getElementById('country-select'),
+    countrySearch: document.getElementById('country-search'),
     pageSize: document.getElementById('page-size'),
     searchBtn: document.getElementById('search-btn'),
     clearBtn: document.getElementById('clear-btn'),
@@ -64,19 +64,32 @@ const el = {
     emptyState: document.getElementById('empty-state'),
     loadingSpinner: document.getElementById('loading-spinner'),
     errorAlert: document.getElementById('error-alert'),
-    searchStatus: document.getElementById('search-status'),
-    countrySearch: document.getElementById('country-search'),
-    countryDropdownList: document.getElementById('country-dropdown-list'),
-    countryTags: document.getElementById('country-selected-tags')
+    searchStatus: document.getElementById('search-status')
 };
 
 document.addEventListener('DOMContentLoaded', () => {
-    initCountryDropdown();
+    console.log('Frontend loaded');
+    initCountries();
     setupEvents();
     checkBackendStatus();
     setDefaultDates();
     performSearch();
 });
+
+/* --- UI init --- */
+
+function initCountries() {
+    if (!el.countrySelect) return;
+    el.countrySelect.innerHTML = CONFIG.COUNTRIES
+        .map(c => `<option value="${c.code}">${c.code} — ${c.name}</option>`)
+        .join('');
+
+    // по умолчанию выделим 2–3 популярных
+    ['DEU', 'FRA', 'ITA'].forEach(code => {
+        const opt = el.countrySelect.querySelector(`option[value="${code}"]`);
+        if (opt) opt.selected = true;
+    });
+}
 
 function setupEvents() {
     if (el.searchForm) {
@@ -86,18 +99,29 @@ function setupEvents() {
             performSearch();
         });
     }
+
+    if (el.searchBtn) {
+        el.searchBtn.addEventListener('click', e => {
+            e.preventDefault();
+            currentPage = 1;
+            performSearch();
+        });
+    }
+
     if (el.clearBtn) {
         el.clearBtn.addEventListener('click', () => {
             el.textInput.value = '';
-            selectedCountries.clear();
-            refreshCountryUI();
+            el.countrySelect.selectedIndex = -1;
             setDefaultDates();
             el.pageSize.value = '25';
+            el.countrySearch.value = '';
+            filterCountries('');
         });
     }
+
     if (el.countrySearch) {
         el.countrySearch.addEventListener('input', () => {
-            filterCountryDropdown(el.countrySearch.value.trim().toLowerCase());
+            filterCountries(el.countrySearch.value.trim().toLowerCase());
         });
     }
 }
@@ -109,77 +133,26 @@ function setDefaultDates() {
     el.dateTo.value = today.toISOString().split('T')[0];
 }
 
-/* ---------- мультиселект стран ---------- */
-
-function initCountryDropdown() {
-    el.countryDropdownList.innerHTML = '';
-    CONFIG.COUNTRIES.forEach(c => {
-        const item = document.createElement('label');
-        item.className = 'country-item';
-        item.innerHTML = `
-            <input type="checkbox" value="${c.code}">
-            <span class="country-code">${c.code}</span>
-            <span class="country-name">${c.name}</span>
-        `;
-        const checkbox = item.querySelector('input');
-        checkbox.addEventListener('change', () => {
-            if (checkbox.checked) selectedCountries.add(c.code);
-            else selectedCountries.delete(c.code);
-            refreshCountryUI();
-        });
-        el.countryDropdownList.appendChild(item);
-    });
-
-    // по умолчанию DEU, FRA
-    selectedCountries.add('DEU');
-    selectedCountries.add('FRA');
-    refreshCountryUI();
-}
-
-function filterCountryDropdown(term) {
-    const items = el.countryDropdownList.querySelectorAll('.country-item');
-    items.forEach(item => {
-        const text = item.textContent.toLowerCase();
-        item.style.display = text.includes(term) ? '' : 'none';
-    });
-}
-
-function refreshCountryUI() {
-    // Чекбоксы
-    el.countryDropdownList.querySelectorAll('input[type="checkbox"]').forEach(ch => {
-        ch.checked = selectedCountries.has(ch.value);
-    });
-
-    // Теги выбранных
-    el.countryTags.innerHTML = '';
-    if (selectedCountries.size === 0) {
-        el.countryTags.innerHTML = '<span class="country-tag country-tag--empty">Страны не выбраны</span>';
-        return;
+function filterCountries(term) {
+    const options = el.countrySelect.options;
+    for (let i = 0; i < options.length; i++) {
+        const text = options[i].text.toLowerCase();
+        options[i].style.display = term ? (text.includes(term) ? '' : 'none') : '';
     }
-    CONFIG.COUNTRIES.forEach(c => {
-        if (selectedCountries.has(c.code)) {
-            const tag = document.createElement('span');
-            tag.className = 'country-tag';
-            tag.textContent = `${c.code} — ${c.name}`;
-            tag.addEventListener('click', () => {
-                selectedCountries.delete(c.code);
-                refreshCountryUI();
-            });
-            el.countryTags.appendChild(tag);
-        }
-    });
 }
 
-/* ---------- backend статус ---------- */
+/* --- backend status --- */
 
 async function checkBackendStatus() {
     try {
-        const r = await fetch(`${CONFIG.BACKEND_BASE_URL}/health`);
-        if (r.ok) {
+        const res = await fetch(`${CONFIG.BACKEND_BASE_URL}/health`);
+        if (res.ok) {
             el.backendStatus.textContent = 'Online';
             el.backendStatus.classList.remove('bg-danger');
             el.backendStatus.classList.add('bg-success');
-        } else setBackendOffline();
+        } else {
+            setBackendOffline();
+        }
     } catch {
         setBackendOffline();
     }
@@ -192,13 +165,18 @@ function setBackendOffline() {
     el.backendStatus.classList.add('bg-danger');
 }
 
-/* ---------- поиск ---------- */
+/* --- search --- */
 
 function getSearchRequest() {
     const text = el.textInput.value.trim() || null;
     const publicationDateFrom = el.dateFrom.value.trim() || null;
     const publicationDateTo = el.dateTo.value.trim() || null;
-    const country = selectedCountries.size ? Array.from(selectedCountries).join(',') : null;
+
+    const selected = Array.from(el.countrySelect.options)
+        .filter(o => o.selected && o.style.display !== 'none')
+        .map(o => o.value);
+    const country = selected.length ? selected.join(',') : null;
+
     const limit = parseInt(el.pageSize.value || '25');
 
     return {
@@ -217,19 +195,23 @@ async function performSearch() {
         hideResults();
         showStatus('Поиск...');
 
-        const request = getSearchRequest();
-        const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/search`, {
+        const req = getSearchRequest();
+        console.log('Request:', req);
+
+        const res = await fetch(`${CONFIG.BACKEND_BASE_URL}/search`, {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(request)
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(req)
         });
 
-        if (!response.ok) {
-            const err = await response.json().catch(() => ({}));
-            throw new Error(err.detail || `HTTP ${response.status}`);
+        console.log('Response status:', res.status);
+
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || `HTTP ${res.status}`);
         }
 
-        const data = await response.json();
+        const data = await res.json();
         currentSearchData = data;
         renderResults(data);
 
@@ -238,12 +220,15 @@ async function performSearch() {
         el.searchStatus.style.display = 'block';
 
     } catch (e) {
+        console.error('Search error:', e);
         showError(`Ошибка поиска: ${e.message}`);
     } finally {
         el.searchBtn.disabled = false;
         el.loadingSpinner.style.display = 'none';
     }
 }
+
+/* --- render --- */
 
 function renderResults(data) {
     if (!data.notices || data.notices.length === 0) {
@@ -258,24 +243,25 @@ function renderResults(data) {
     table.className = 'table';
     table.innerHTML = `
         <thead>
-        <tr>
-            <th>Номер публикации</th>
-            <th>Дата</th>
-            <th>Заголовок</th>
-            <th>Покупатель</th>
-            <th>Страна</th>
-        </tr>
+            <tr>
+                <th>Номер публикации</th>
+                <th>Дата</th>
+                <th>Заголовок</th>
+                <th>Покупатель</th>
+                <th>Страна</th>
+            </tr>
         </thead>
         <tbody></tbody>
     `;
+
     const tbody = table.querySelector('tbody');
 
     data.notices.forEach(n => {
         const tr = document.createElement('tr');
-        const dateStr = n.publication_date ? new Date(n.publication_date).toLocaleDateString('ru-RU') : '-';
+        const date = n.publication_date ? new Date(n.publication_date).toLocaleDateString('ru-RU') : '-';
         tr.innerHTML = `
             <td>${n.publication_number || 'N/A'}</td>
-            <td>${dateStr}</td>
+            <td>${date}</td>
             <td>${n.title || 'Нет заголовка'}</td>
             <td>${n.buyer || 'Неизвестный'}</td>
             <td>${n.country || '-'}</td>
@@ -290,9 +276,10 @@ function renderResults(data) {
 function renderPagination(total, perPage) {
     el.pagination.innerHTML = '';
     if (!total || total <= perPage) return;
-
     const totalPages = Math.ceil(total / perPage);
-    for (let i = 1; i <= Math.min(totalPages, 5); i++) {
+    const maxPages = Math.min(totalPages, 5);
+
+    for (let i = 1; i <= maxPages; i++) {
         const btn = document.createElement('button');
         btn.className = 'page-link';
         btn.textContent = i;
@@ -305,7 +292,7 @@ function renderPagination(total, perPage) {
     }
 }
 
-/* ---------- вспомогательные ---------- */
+/* --- helpers --- */
 
 function showNoResults() {
     el.emptyState.style.display = 'block';

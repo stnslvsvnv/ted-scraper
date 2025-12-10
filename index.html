@@ -10,7 +10,9 @@
 <div class="container">
     <header>
         <h1>TED Европа Поиск тендеров</h1>
-        <div>Статус backend: <span id="backend-status" class="backend-status bg-secondary">Проверка...</span></div>
+        <div>Статус backend:
+            <span id="backend-status" class="backend-status bg-secondary">Проверка...</span>
+        </div>
     </header>
 
     <form id="search-form">
@@ -31,30 +33,24 @@
         </div>
 
         <div class="form-group">
-            <label for="country-select">Страны (несколько, с поиском):</label>
-            <!-- обёртка под кастомный мультиселект -->
-            <div class="country-multiselect">
-                <input type="text" id="country-search" class="form-control" placeholder="Поиск стран...">
-                <div class="country-dropdown">
-                    <div id="country-dropdown-list">
-                        <!-- чекбоксы стран будут добавлены script.js -->
-                    </div>
-                </div>
-                <div id="country-selected-tags" class="country-tags"></div>
-            </div>
-            <small class="form-text">Можно выбрать сразу несколько стран.</small>
+            <label for="country-search">Страны (несколько, с поиском):</label>
+            <input type="text" id="country-search" class="form-control" placeholder="Поиск стран по коду или названию">
+            <select id="country-select" multiple size="6" class="form-control">
+                <!-- наполняется в script.js -->
+            </select>
+            <small class="form-text">
+                Зажмите Ctrl / Cmd для выбора нескольких стран. Коды: DEU — Germany, FRA — France и т.д.
+            </small>
         </div>
 
-        <div class="form-row">
-            <div class="form-group">
-                <label for="page-size">Результатов:</label>
-                <select id="page-size" class="form-control">
-                    <option value="10">10</option>
-                    <option value="25" selected>25</option>
-                    <option value="50">50</option>
-                    <option value="100">100</option>
-                </select>
-            </div>
+        <div class="form-group">
+            <label for="page-size">Результатов:</label>
+            <select id="page-size" class="form-control">
+                <option value="10">10</option>
+                <option value="25" selected>25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+            </select>
         </div>
 
         <div class="form-actions">
