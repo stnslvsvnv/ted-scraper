@@ -1,4 +1,4 @@
-/* TED Scraper Frontend - Multi-country selector */
+/* TED Scraper Frontend + Slim Select */
 
 const CONFIG = {
     BACKEND_BASE_URL: window.location.origin,
@@ -45,20 +45,16 @@ const CONFIG = {
     ]
 };
 
-console.log('Backend URL:', CONFIG.BACKEND_BASE_URL);
-
-// State
 let currentSearchData = null;
 let currentPage = 1;
+let countrySlim = null;
 
-// DOM Elements
 const elements = {
     searchForm: document.getElementById('search-form'),
     textInput: document.getElementById('text'),
     dateFrom: document.getElementById('publication-date-from'),
     dateTo: document.getElementById('publication-date-to'),
     countrySelect: document.getElementById('country-select'),
-    countrySearch: document.getElementById('country-search'),
     pageSize: document.getElementById('page-size'),
     searchBtn: document.getElementById('search-btn'),
     clearBtn: document.getElementById('clear-btn'),
@@ -71,16 +67,41 @@ const elements = {
     searchStatus: document.getElementById('search-status')
 };
 
-// Initialize
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('TED Scraper Frontend loaded');
-    setupEventListeners();
     setupCountries();
+    setupSlimSelect();
+    setupEventListeners();
     checkBackendStatus();
     setDefaultDates();
 });
 
-// Setup Event Listeners
+// инициализация списка стран (опции <option>)
+function setupCountries() {
+    if (!elements.countrySelect) return;
+    elements.countrySelect.innerHTML = CONFIG.COUNTRIES
+        .map(c => `<option value="${c.code}">${c.code} — ${c.name}</option>`)
+        .join('');
+}
+
+// инициализация Slim Select
+function setupSlimSelect() {
+    if (!elements.countrySelect) return;
+    countrySlim = new SlimSelect({
+        select: '#country-select',
+        settings: {
+            placeholderText: 'Выберите страны',
+            searchPlaceholder: 'Поиск...',
+            searchText: 'Ничего не найдено',
+            closeOnSelect: false,
+            hideSelected: true,
+            allowDeselect: true
+        }
+    });
+
+    // по умолчанию несколько популярных стран
+    countrySlim.setSelected(['DEU', 'FRA', 'ITA', 'ESP', 'NLD']);
+}
+
 function setupEventListeners() {
     if (elements.searchForm) {
         elements.searchForm.addEventListener('submit', (e) => {
@@ -89,130 +110,74 @@ function setupEventListeners() {
             performSearch();
         });
     }
-
     if (elements.clearBtn) {
         elements.clearBtn.addEventListener('click', clearForm);
     }
-
-    if (elements.countrySearch) {
-        elements.countrySearch.addEventListener('input', filterCountries);
-    }
 }
 
-// Setup Countries Dropdown
-function setupCountries() {
-    if (!elements.countrySelect) return;
-    
-    elements.countrySelect.innerHTML = CONFIG.COUNTRIES.map(country => 
-        `<option value="${country.code}">${country.code} - ${country.name}</option>`
-    ).join('');
-    
-    // Выделяем популярные страны по умолчанию
-    setTimeout(() => {
-        const popular = ['DEU', 'FRA', 'ITA', 'ESP', 'NLD'];
-        popular.forEach(code => {
-            const option = elements.countrySelect.querySelector(`option[value="${code}"]`);
-            if (option) option.selected = true;
-        });
-    }, 100);
-}
-
-// Filter Countries
-function filterCountries() {
-    const searchTerm = elements.countrySearch.value.toLowerCase();
-    const options = elements.countrySelect.options;
-    
-    for (let i = 0; i < options.length; i++) {
-        const option = options[i];
-        const matches = option.text.toLowerCase().includes(searchTerm);
-        option.style.display = matches ? '' : 'none';
-    }
-}
-
-// Set Default Dates
 function setDefaultDates() {
     const today = new Date();
     const fromDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
     const fromStr = fromDate.toISOString().split('T')[0];
     const toStr = today.toISOString().split('T')[0];
-    
     if (elements.dateFrom) elements.dateFrom.value = fromStr;
     if (elements.dateTo) elements.dateTo.value = toStr;
 }
 
-// Clear Form
 function clearForm() {
     if (elements.textInput) elements.textInput.value = '';
-    if (elements.countrySelect) Array.from(elements.countrySelect.options).forEach(opt => opt.selected = false);
-    if (elements.countrySearch) elements.countrySearch.value = '';
+    if (countrySlim) countrySlim.setSelected([]);
     if (elements.pageSize) elements.pageSize.value = '25';
     setDefaultDates();
     currentPage = 1;
-    filterCountries(); // Reset filter
-    console.log('Form cleared');
 }
 
-// Check Backend Status
 async function checkBackendStatus() {
     try {
         const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/health`);
         if (response.ok) {
-            if (elements.backendStatus) {
-                elements.backendStatus.textContent = 'Online';
-                elements.backendStatus.classList.remove('bg-danger', 'bg-secondary');
-                elements.backendStatus.classList.add('bg-success');
-            }
-        } else {
-            setBackendOffline();
-        }
-    } catch (error) {
+            elements.backendStatus.textContent = 'Online';
+            elements.backendStatus.classList.remove('bg-danger', 'bg-secondary');
+            elements.backendStatus.classList.add('bg-success');
+        } else setBackendOffline();
+    } catch {
         setBackendOffline();
     }
     setTimeout(checkBackendStatus, 30000);
 }
 
 function setBackendOffline() {
-    if (elements.backendStatus) {
-        elements.backendStatus.textContent = 'Offline';
-        elements.backendStatus.classList.remove('bg-success', 'bg-secondary');
-        elements.backendStatus.classList.add('bg-danger');
-    }
+    elements.backendStatus.textContent = 'Offline';
+    elements.backendStatus.classList.remove('bg-success', 'bg-secondary');
+    elements.backendStatus.classList.add('bg-danger');
 }
 
-// Get form data
+// формирование тела запроса
 function getSearchRequest() {
-    const selectedCountries = Array.from(elements.countrySelect.selectedOptions).map(opt => opt.value);
-    const countryList = selectedCountries.join(',');
-    
+    const selectedCountries = countrySlim ? countrySlim.getSelected() : [];
     return {
         filters: {
             text: elements.textInput?.value?.trim() || null,
             publication_date_from: elements.dateFrom?.value?.trim() || null,
             publication_date_to: elements.dateTo?.value?.trim() || null,
-            country: countryList || null
+            country: selectedCountries.length ? selectedCountries.join(',') : null
         },
         page: currentPage,
         limit: parseInt(elements.pageSize?.value || '25')
     };
 }
 
-// Perform search
 async function performSearch() {
     try {
-        if (elements.searchBtn) elements.searchBtn.disabled = true;
-        if (elements.loadingSpinner) elements.loadingSpinner.style.display = 'block';
-        
-        hideEmptyState();
-        hideResults();
-        hideError();
+        elements.searchBtn.disabled = true;
+        elements.loadingSpinner.style.display = 'block';
+        hideEmptyState(); hideResults(); hideError();
         showStatus('Поиск...');
 
         const request = getSearchRequest();
-        console.log('Sending search request:', request);
-
         const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/search`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(request)
         });
 
@@ -223,96 +188,68 @@ async function performSearch() {
 
         const data = await response.json();
         currentSearchData = data;
-        
-        console.log('Search results:', data);
         displayResults(data);
-        
-        if (elements.searchStatus) {
-            elements.searchStatus.classList.remove('alert-warning', 'alert-info');
-            elements.searchStatus.classList.add('alert-success');
-            elements.searchStatus.innerHTML = `Найдено: <strong>${data.total}</strong> результатов`;
-            elements.searchStatus.style.display = 'block';
-        }
 
-    } catch (error) {
-        console.error('Search error:', error);
-        showError(`Ошибка поиска: ${error.message}`);
+        elements.searchStatus.classList.remove('alert-warning', 'alert-info');
+        elements.searchStatus.classList.add('alert-success');
+        elements.searchStatus.innerHTML = `Найдено: <strong>${data.total}</strong> результатов`;
+        elements.searchStatus.style.display = 'block';
+
+    } catch (e) {
+        showError(`Ошибка поиска: ${e.message}`);
     } finally {
-        if (elements.searchBtn) elements.searchBtn.disabled = false;
-        if (elements.loadingSpinner) elements.loadingSpinner.style.display = 'none';
+        elements.searchBtn.disabled = false;
+        elements.loadingSpinner.style.display = 'none';
     }
 }
 
-// Display results
 function displayResults(data) {
     if (!data.notices || data.notices.length === 0) {
         showNoResults();
         return;
     }
 
-    if (elements.resultsContainer) {
-        elements.resultsContainer.style.display = 'block';
-    }
+    elements.resultsContainer.style.display = 'block';
+    elements.resultsTbody.innerHTML = '';
 
-    if (elements.resultsTbody) {
-        elements.resultsTbody.innerHTML = '';
-        
-        data.notices.forEach((notice) => {
-            const row = document.createElement('tr');
-            
-            const pubNum = notice.publication_number || 'N/A';
-            const date = notice.publication_date ? 
-                new Date(notice.publication_date).toLocaleDateString('ru-RU') : '-';
-            const title = notice.title || 'Нет заголовка';
-            const buyer = notice.buyer || 'Неизвестный';
-            const country = notice.country || '-';
-
-            row.innerHTML = `
-                <td>${pubNum}</td>
-                <td>${date}</td>
-                <td>${title}</td>
-                <td>${buyer}</td>
-                <td>${country}</td>
-            `;
-            
-            elements.resultsTbody.appendChild(row);
-        });
-    }
+    data.notices.forEach(n => {
+        const row = document.createElement('tr');
+        const pubNum = n.publication_number || 'N/A';
+        const date = n.publication_date ? new Date(n.publication_date).toLocaleDateString('ru-RU') : '-';
+        const title = n.title || 'Нет заголовка';
+        const buyer = n.buyer || 'Неизвестный';
+        const country = n.country || '-';
+        row.innerHTML = `
+            <td>${pubNum}</td>
+            <td>${date}</td>
+            <td>${title}</td>
+            <td>${buyer}</td>
+            <td>${country}</td>
+        `;
+        elements.resultsTbody.appendChild(row);
+    });
 }
 
-// Show no results
 function showNoResults() {
-    if (elements.emptyState) {
-        elements.emptyState.style.display = 'block';
-    }
-    if (elements.resultsContainer) {
-        elements.resultsContainer.style.display = 'none';
-    }
+    elements.emptyState.style.display = 'block';
+    elements.resultsContainer.style.display = 'none';
 }
 
-// Show error
-function showError(message) {
-    if (elements.errorAlert) {
-        elements.errorAlert.textContent = message;
-        elements.errorAlert.style.display = 'block';
-        elements.errorAlert.classList.add('alert-danger');
-    }
+function showError(msg) {
+    elements.errorAlert.textContent = msg;
+    elements.errorAlert.style.display = 'block';
+    elements.errorAlert.classList.add('alert-danger');
 }
 
-// Hide helpers
-function hideEmptyState() { if (elements.emptyState) elements.emptyState.style.display = 'none'; }
-function hideResults() { if (elements.resultsContainer) elements.resultsContainer.style.display = 'none'; }
+function hideEmptyState() { elements.emptyState.style.display = 'none'; }
+function hideResults() { elements.resultsContainer.style.display = 'none'; }
 function hideError() {
-    if (elements.errorAlert) {
-        elements.errorAlert.style.display = 'none';
-        elements.errorAlert.classList.remove('alert-danger');
-    }
+    elements.errorAlert.style.display = 'none';
+    elements.errorAlert.classList.remove('alert-danger');
 }
-function showStatus(message) {
-    if (elements.searchStatus) {
-        elements.searchStatus.textContent = message;
-        elements.searchStatus.style.display = 'block';
-        elements.searchStatus.classList.remove('alert-success', 'alert-warning');
-        elements.searchStatus.classList.add('alert-info');
-    }
+function showStatus(msg) {
+    elements.searchStatus.textContent = msg;
+    elements.searchStatus.style.display = 'block';
+    elements.searchStatus.classList.remove('alert-success', 'alert-warning');
+    elements.searchStatus.classList.add('alert-info');
 }
