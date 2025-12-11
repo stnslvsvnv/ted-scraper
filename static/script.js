@@ -1,4 +1,4 @@
-/* TED Scraper Frontend - Fixed version */
+/* TED Scraper Frontend – версия с правильным порядком колонок */
 
 const CONFIG = {
     BACKEND_BASE_URL: window.location.origin,
@@ -7,18 +7,16 @@ const CONFIG = {
 
 console.log('Backend URL:', CONFIG.BACKEND_BASE_URL);
 
-// State
 let currentSearchData = null;
 let currentPage = 1;
 
-// DOM Elements
 const elements = {
     searchForm: document.getElementById('search-form'),
     textInput: document.getElementById('text'),
     dateFrom: document.getElementById('publication-date-from'),
     dateTo: document.getElementById('publication-date-to'),
     countryInput: document.getElementById('country'),
-    pageSize: document.getElementById('page-size'),
+    pageSize: document.getElementById('page-size') || { value: '25' },
     searchBtn: document.getElementById('search-btn'),
     backendStatus: document.getElementById('backend-status'),
     resultsContainer: document.getElementById('results-container'),
@@ -29,15 +27,14 @@ const elements = {
     searchStatus: document.getElementById('search-status')
 };
 
-// Initialize
 document.addEventListener('DOMContentLoaded', () => {
     console.log('TED Scraper Frontend loaded');
     setupEventListeners();
     checkBackendStatus();
     setDefaultDates();
+    performSearch();
 });
 
-// Setup Event Listeners
 function setupEventListeners() {
     if (elements.searchForm) {
         elements.searchForm.addEventListener('submit', (e) => {
@@ -46,7 +43,6 @@ function setupEventListeners() {
             performSearch();
         });
     }
-
     if (elements.searchBtn) {
         elements.searchBtn.addEventListener('click', (e) => {
             e.preventDefault();
@@ -56,56 +52,60 @@ function setupEventListeners() {
     }
 }
 
-// Set Default Dates
 function setDefaultDates() {
     const today = new Date();
-    const fromDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const fromDate = new Date(today.getFullYear(), 9, 1);
     const fromStr = fromDate.toISOString().split('T')[0];
     const toStr = today.toISOString().split('T')[0];
-    
     if (elements.dateFrom) elements.dateFrom.value = fromStr;
     if (elements.dateTo) elements.dateTo.value = toStr;
-    
-    console.log('Default dates:', fromStr, 'to', toStr);
 }
 
-// Check Backend Status
 async function checkBackendStatus() {
     try {
-        const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/health`);
+        const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/health`, { timeout: 5000 });
         if (response.ok) {
             if (elements.backendStatus) {
                 elements.backendStatus.textContent = 'Online';
-                elements.backendStatus.classList.remove('bg-danger', 'bg-secondary');
+                elements.backendStatus.classList.remove('bg-danger');
                 elements.backendStatus.classList.add('bg-success');
             }
-            console.log('✓ Backend is online');
         } else {
             setBackendOffline();
         }
     } catch (error) {
-        console.warn('Backend check failed:', error);
         setBackendOffline();
     }
-    
     setTimeout(checkBackendStatus, 30000);
 }
 
 function setBackendOffline() {
     if (elements.backendStatus) {
         elements.backendStatus.textContent = 'Offline';
-        elements.backendStatus.classList.remove('bg-success', 'bg-secondary');
+        elements.backendStatus.classList.remove('bg-success');
         elements.backendStatus.classList.add('bg-danger');
     }
 }
 
-// Get form data
 function getSearchRequest() {
     const text = elements.textInput?.value?.trim() || null;
-    const publicationDateFrom = elements.dateFrom?.value?.trim() || null;
-    const publicationDateTo = elements.dateTo?.value?.trim() || null;
-    const country = elements.countryInput?.value?.trim() || null;
+    let publicationDateFrom = elements.dateFrom?.value?.trim() || null;
+    let publicationDateTo = elements.dateTo?.value?.trim() || null;
+
+    let country = null;
+    if (elements.countryInput && elements.countryInput.options) {
+        const selected = Array.from(elements.countryInput.options)
+            .filter(o => o.selected && o.value)
+            .map(o => o.value);
+        if (selected.length) {
+            country = selected.join(',');
+        }
+    }
+
     const limit = parseInt(elements.pageSize?.value || '25');
+
+    if (!publicationDateFrom) publicationDateFrom = '2024-10-01';
+    if (!publicationDateTo) publicationDateTo = new Date().toISOString().split('T')[0];
 
     return {
         filters: {
@@ -119,12 +119,11 @@ function getSearchRequest() {
     };
 }
 
-// Perform search
 async function performSearch() {
     try {
         if (elements.searchBtn) elements.searchBtn.disabled = true;
         if (elements.loadingSpinner) elements.loadingSpinner.style.display = 'block';
-        
+
         hideEmptyState();
         hideResults();
         hideError();
@@ -135,10 +134,9 @@ async function performSearch() {
 
         const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/search`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(request)
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(request),
+            timeout: CONFIG.REQUEST_TIMEOUT
         });
 
         console.log('Response status:', response.status);
@@ -150,18 +148,14 @@ async function performSearch() {
 
         const data = await response.json();
         currentSearchData = data;
-        
         console.log('Search results:', data);
-        
         displayResults(data);
-        
-        if (elements.searchStatus) {
-            elements.searchStatus.classList.remove('alert-warning', 'alert-info');
-            elements.searchStatus.classList.add('alert-success');
-            elements.searchStatus.textContent = `Найдено: ${data.total} результатов`;
-            elements.searchStatus.style.display = 'block';
-        }
 
+        if (elements.searchStatus) {
+            elements.searchStatus.classList.remove('alert-warning');
+            elements.searchStatus.classList.add('alert-success');
+            elements.searchStatus.textContent = `${data.notices.length} результатов из ${data.total}`;
+        }
     } catch (error) {
         console.error('Search error:', error);
         showError(`Ошибка поиска: ${error.message}`);
@@ -171,92 +165,79 @@ async function performSearch() {
     }
 }
 
-// Display results
 function displayResults(data) {
-    console.log('Displaying results:', data);
-    
     if (!data.notices || data.notices.length === 0) {
         showNoResults();
         return;
     }
+    if (elements.resultsContainer) elements.resultsContainer.style.display = 'block';
+    if (!elements.resultsTbody) return;
 
-    if (elements.resultsContainer) {
-        elements.resultsContainer.style.display = 'block';
-    }
+    elements.resultsTbody.innerHTML = '';
 
-    if (elements.resultsTbody) {
-        elements.resultsTbody.innerHTML = '';
-        
-        data.notices.forEach((notice) => {
-            const row = document.createElement('tr');
-            
-            const pubNum = notice.publication_number || 'N/A';
-            const date = notice.publication_date ? 
-                new Date(notice.publication_date).toLocaleDateString('ru-RU') : '-';
-            const title = notice.title || 'Нет заголовка';
-            const buyer = notice.buyer || 'Неизвестный';
-            const country = notice.country || '-';
+    data.notices.forEach((notice) => {
+        const row = document.createElement('tr');
+        row.dataset.publicationNumber = notice.publication_number;
 
-            row.innerHTML = `
-                <td>${pubNum}</td>
-                <td>${date}</td>
-                <td>${title}</td>
-                <td>${buyer}</td>
-                <td>${country}</td>
-            `;
-            
-            elements.resultsTbody.appendChild(row);
-        });
-    }
+        const pubNum = notice.publication_number || 'N/A';
+        const pubDate = notice.publication_date || '-';
+        const title = notice.title || 'Нет заголовка';
+        const deadline = notice.deadline_date || '-';
+
+        let locationParts = [];
+        if (notice.country) locationParts.push(notice.country);
+        if (notice.city) locationParts.push(notice.city);
+        if (notice.performance_city && notice.performance_city !== notice.city) {
+            locationParts.push(`(${notice.performance_city})`);
+        }
+        const location = locationParts.join(' / ') || '-';
+
+        // ВАЖНО: порядок точно совпадает с заголовками в HTML
+        // Номер | Дата публикации | Описание | Дедлайн | Страна/город
+        row.innerHTML = `
+            <td class="col-pubnum">${pubNum}</td>
+            <td class="col-date">${pubDate}</td>
+            <td class="col-title">${title}</td>
+            <td class="col-deadline">${deadline}</td>
+            <td class="col-location">${location}</td>
+        `;
+        elements.resultsTbody.appendChild(row);
+    });
 }
 
-// Show no results
 function showNoResults() {
-    if (elements.emptyState) {
-        elements.emptyState.style.display = 'block';
-    }
-    if (elements.resultsContainer) {
-        elements.resultsContainer.style.display = 'none';
-    }
+    if (elements.emptyState) elements.emptyState.style.display = 'block';
+    if (elements.resultsContainer) elements.resultsContainer.style.display = 'none';
     if (elements.searchStatus) {
-        elements.searchStatus.textContent = 'Результаты не найдены';
-        elements.searchStatus.classList.remove('alert-success', 'alert-info');
+        elements.searchStatus.textContent = '0 результатов';
         elements.searchStatus.classList.add('alert-warning');
-        elements.searchStatus.style.display = 'block';
     }
 }
 
-// Show error
 function showError(message) {
     if (elements.errorAlert) {
         elements.errorAlert.textContent = message;
         elements.errorAlert.style.display = 'block';
         elements.errorAlert.classList.add('alert-danger');
     }
-    console.error('Error displayed:', message);
 }
 
-// Hide helpers
 function hideEmptyState() {
     if (elements.emptyState) elements.emptyState.style.display = 'none';
 }
-
 function hideResults() {
     if (elements.resultsContainer) elements.resultsContainer.style.display = 'none';
 }
-
 function hideError() {
     if (elements.errorAlert) {
         elements.errorAlert.style.display = 'none';
         elements.errorAlert.classList.remove('alert-danger');
     }
 }
-
 function showStatus(message) {
     if (elements.searchStatus) {
         elements.searchStatus.textContent = message;
         elements.searchStatus.style.display = 'block';
-        elements.searchStatus.classList.remove('alert-success', 'alert-warning');
         elements.searchStatus.classList.add('alert-info');
     }
 }

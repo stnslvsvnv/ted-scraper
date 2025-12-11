@@ -3,97 +3,121 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TED Scraper</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="/static/style.css">
+    <title>TED Tender Search</title>
+    <link rel="stylesheet" href="static/style.css">
 </head>
 <body>
-    <div class="container mt-4">
-        <h1>TED Europa Поиск тендеров</h1>
-        
-        <!-- Backend Status -->
-        <div class="mb-3">
-            Статус backend: <span id="backend-status" class="badge bg-secondary">Проверка...</span>
+<div class="container">
+    <header>
+        <h1>TED Европа Поиск тендеров</h1>
+        <div>
+            Статус backend:
+            <span id="backend-status" class="backend-status bg-secondary">Проверка...</span>
+        </div>
+    </header>
+
+    <form id="search-form">
+        <div class="form-group">
+            <label for="text">Текст поиска:</label>
+            <input type="text" id="text" name="text" class="form-control" placeholder="Например: computer">
         </div>
 
-        <!-- Search Form -->
-        <form id="search-form" class="mb-4">
-            <div class="row g-3">
-                <div class="col-md-6">
-                    <label for="text" class="form-label">Текст поиска:</label>
-                    <input type="text" class="form-control" id="text" placeholder="Например: computer">
-                </div>
-                
-                <div class="col-md-3">
-                    <label for="publication-date-from" class="form-label">Дата от (YYYY-MM-DD):</label>
-                    <input type="date" class="form-control" id="publication-date-from">
-                </div>
-                
-                <div class="col-md-3">
-                    <label for="publication-date-to" class="form-label">Дата до (YYYY-MM-DD):</label>
-                    <input type="date" class="form-control" id="publication-date-to">
-                </div>
-                
-                <div class="col-md-4">
-                    <label for="country" class="form-label">Страна:</label>
-                    <input type="text" class="form-control" id="country" placeholder="Например: DEU, FRA">
-                </div>
-                
-                <div class="col-md-2">
-                    <label for="page-size" class="form-label">Результатов:</label>
-                    <select class="form-select" id="page-size">
-                        <option value="10">10</option>
-                        <option value="25" selected>25</option>
-                        <option value="50">50</option>
-                        <option value="100">100</option>
-                    </select>
-                </div>
-                
-                <div class="col-md-6">
-                    <label class="form-label">&nbsp;</label>
-                    <button type="submit" id="search-btn" class="btn btn-primary w-100">Поиск</button>
-                </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="publication-date-from">Дата от (YYYY-MM-DD):</label>
+                <input type="date" id="publication-date-from" name="publication-date-from" class="form-control">
             </div>
-        </form>
-
-        <!-- Status Messages -->
-        <div id="search-status" class="alert" style="display: none;"></div>
-        <div id="error-alert" class="alert" style="display: none;"></div>
-        <div id="loading-spinner" class="text-center" style="display: none;">
-            <div class="spinner-border" role="status">
-                <span class="visually-hidden">Загрузка...</span>
+            <div class="form-group">
+                <label for="publication-date-to">Дата до (YYYY-MM-DD):</label>
+                <input type="date" id="publication-date-to" name="publication-date-to" class="form-control">
             </div>
         </div>
 
-        <!-- Results Table -->
-        <div id="results-container" style="display: none;">
-            <h3>Результаты поиска</h3>
-            <div class="table-responsive">
-                <table class="table table-striped table-hover">
-                    <thead class="table-dark">
-                        <tr>
-                            <th>Номер публикации</th>
-                            <th>Дата публикации</th>
-                            <th>Заголовок</th>
-                            <th>Покупатель</th>
-                            <th>Страна</th>
-                        </tr>
-                    </thead>
-                    <tbody id="results-tbody">
-                        <!-- Results will be inserted here -->
-                    </tbody>
-                </table>
-            </div>
+        <div class="form-group">
+            <label for="country">Страна (можно несколько):</label>
+            <select id="country" name="country" multiple size="6" class="form-control">
+                <option value="">— не выбрано —</option>
+                <option value="ALB">ALB — Albania</option>
+                <option value="AUT">AUT — Austria</option>
+                <option value="BEL">BEL — Belgium</option>
+                <option value="BGR">BGR — Bulgaria</option>
+                <option value="CHE">CHE — Switzerland</option>
+                <option value="CYP">CYP — Cyprus</option>
+                <option value="CZE">CZE — Czechia</option>
+                <option value="DEU">DEU — Germany</option>
+                <option value="DNK">DNK — Denmark</option>
+                <option value="ESP">ESP — Spain</option>
+                <option value="EST">EST — Estonia</option>
+                <option value="FIN">FIN — Finland</option>
+                <option value="FRA">FRA — France</option>
+                <option value="GBR">GBR — United Kingdom</option>
+                <option value="GRC">GRC — Greece</option>
+                <option value="HRV">HRV — Croatia</option>
+                <option value="HUN">HUN — Hungary</option>
+                <option value="IRL">IRL — Ireland</option>
+                <option value="ISL">ISL — Iceland</option>
+                <option value="ITA">ITA — Italy</option>
+                <option value="LIE">LIE — Liechtenstein</option>
+                <option value="LTU">LTU — Lithuania</option>
+                <option value="LUX">LUX — Luxembourg</option>
+                <option value="LVA">LVA — Latvia</option>
+                <option value="MLT">MLT — Malta</option>
+                <option value="MNE">MNE — Montenegro</option>
+                <option value="NLD">NLD — Netherlands</option>
+                <option value="NOR">NOR — Norway</option>
+                <option value="POL">POL — Poland</option>
+                <option value="PRT">PRT — Portugal</option>
+                <option value="ROU">ROU — Romania</option>
+                <option value="SRB">SRB — Serbia</option>
+                <option value="SVK">SVK — Slovakia</option>
+                <option value="SVN">SVN — Slovenia</option>
+                <option value="SWE">SWE — Sweden</option>
+                <option value="UKR">UKR — Ukraine</option>
+                <option value="XKX">XKX — Kosovo</option>
+            </select>
+            <small class="form-text">Используй Ctrl / Cmd для выбора нескольких стран.</small>
         </div>
 
-        <!-- Empty State -->
-        <div id="empty-state" style="display: none;">
-            <div class="alert alert-warning">
-                Результаты не найдены. Попробуйте изменить критерии поиска.
-            </div>
+        <div class="form-group">
+            <label for="page-size">Результатов:</label>
+            <select id="page-size" class="form-control">
+                <option value="10">10</option>
+                <option value="25" selected>25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+            </select>
         </div>
+
+        <div class="form-actions">
+            <button type="submit" id="search-btn" class="btn btn-primary">Поиск</button>
+        </div>
+    </form>
+
+    <div id="search-status" class="alert" style="display:none;"></div>
+    <div id="error-alert" class="alert" style="display:none;"></div>
+    <div id="loading-spinner" class="spinner" style="display:none;">Загрузка...</div>
+
+    <div id="results-container" style="display:none;">
+        <table class="table">
+            <thead>
+            <tr>
+                <th class="col-pubnum">Номер</th>
+                <th class="col-date">Дата публикации</th>
+                <th class="col-title">Описание</th>
+                <th class="col-deadline">Дедлайн</th>
+                <th class="col-location">Страна / город</th>
+            </tr>
+            </thead>
+            <tbody id="results-tbody"></tbody>
+        </table>
+        <div id="pagination"></div>
     </div>
 
-    <script src="/static/script.js"></script>
+    <div id="empty-state" style="display:none;">
+        <p>Результаты не найдены. Попробуйте изменить критерии поиска.</p>
+    </div>
+</div>
+
+<script src="static/script.js"></script>
 </body>
 </html>
