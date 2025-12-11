@@ -1,6 +1,6 @@
 """
-TED Scraper Backend – FINAL VERSION для TED API v3
-fields содержит ТОЛЬКО supported значения из API ошибки
+TED Scraper Backend – РАБОЧАЯ ВЕРСИЯ по Swagger документации
+fields = ТОЛЬКО supported значения из paste.txt
 """
 
 from fastapi import FastAPI, HTTPException
@@ -30,22 +30,19 @@ app.add_middleware(
 TED_API_URL = "https://api.ted.europa.eu/v3/notices/search"
 API_KEY = os.getenv("TED_API_KEY")
 
-# ТОЧНО supported fields из API ошибки + базовые
+# ТОЧНЫЙ список supported fields из Swagger (paste.txt)
 SEARCH_FIELDS = [
     "publication-number",
-    "publication-date", 
+    "publication-date",
     "notice-title",
     "buyer-name",
     "buyer-country",
-    "deadline-date",
-    "city",
-    # Добавил из supported списка для стабильности
-    "sme-part",
-    "touchpoint-gateway-ted-esen",
-    "organisation-city-serv-prov"
+    "deadline-date-part",  # для дедлайнов
+    "organisation-city-buyer",  # город покупателя
+    "sme-part",  # безопасное дополнительное поле
+    "touchpoint-gateway-ted-esen"  # безопасное дополнительное поле
 ]
 
-# Модели (без изменений)
 class Filters(BaseModel):
     text: Optional[str] = None
     publication_date_from: Optional[str] = None
@@ -132,7 +129,7 @@ def build_ted_query(filters: Filters) -> str:
         parts.append(f"(publication-date <= {d})")
     if filters.active_only:
         today = datetime.now().strftime("%Y%m%d")
-        parts.append(f"(deadline-date >= {today})")
+        parts.append(f"(deadline-date-part >= {today})")
     if not parts:
         default_date = (datetime.now() - timedelta(days=30)).strftime("%Y%m%d")
         parts.append(f"(publication-date >= {default_date})")
@@ -141,7 +138,7 @@ def build_ted_query(filters: Filters) -> str:
 @app.post("/search", response_model=SearchResponse)
 async def search_notices(req: SearchRequest):
     try:
-        query = build_ted_query(req.filters) if req.filters else "(publication-date >= 20250101)"
+        query = build_ted_query(req.filters) if req.filters else "(publication-date >= 20251101)"
         logger.info(f"TED Query: {query}")
         
         payload = {
@@ -149,7 +146,10 @@ async def search_notices(req: SearchRequest):
             "page": max(1, req.page),
             "limit": min(100, max(1, req.limit)),
             "scope": "ALL",
-            "fields": SEARCH_FIELDS  # ОБЯЗАТЕЛЬНО! Точные supported поля
+            "fields": SEARCH_FIELDS,  # ТОЛЬКО supported из Swagger
+            "checkQuerySyntax": False,
+            "paginationMode": "PAGE_NUMBER",
+            "onlyLatestVersions": False
         }
         if API_KEY:
             payload["apiKey"] = API_KEY
@@ -172,11 +172,11 @@ async def search_notices(req: SearchRequest):
                     Notice(
                         publication_number=item.get("publication-number", "N/A"),
                         publication_date=item.get("publication-date"),
-                        deadline_date=item.get("deadline-date"),
+                        deadline_date=item.get("deadline-date-part"),
                         title=item.get("notice-title"),
                         buyer=item.get("buyer-name"),
                         country=item.get("buyer-country"),
-                        city=item.get("city"),
+                        city=item.get("organisation-city-buyer"),
                         cpv_code=None,
                     )
                 )
