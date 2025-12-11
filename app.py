@@ -1,5 +1,5 @@
 """
-TED Scraper Backend – версия с датой дедлайна и адресом покупателя
+TED Scraper Backend – версия с правильными полями API
 """
 
 from fastapi import FastAPI, HTTPException
@@ -27,27 +27,27 @@ app.add_middleware(
 
 TED_API_URL = "https://api.ted.europa.eu/v3/notices/search"
 
-# добавляем поля для дедлайна и адреса покупателя
+# правильные поля из TED API
 SUPPORTED_FIELDS = [
     "publication-number",
     "publication-date",
     "notice-title",
-    "buyer-country",
-    "buyer-region",
-    "buyer-city",
-    "submission-deadline",   # срок подачи (если есть в еForms)
+    "organisation-country-buyer",
+    "organisation-city-buyer",
+    "place-of-performance-city-lot",
+    "deadline-receipt-tender-date-lot",
 ]
 
-API_KEY = os.getenv("TED_API_KEY", None)  # export TED_API_KEY=your_key
+API_KEY = os.getenv("TED_API_KEY", None)
 
-PREFERRED_LANGS = ["eng", "deu", "fra"]  # сначала англ., затем нем., франц.
+PREFERRED_LANGS = ["eng", "deu", "fra"]
 
 
 class Filters(BaseModel):
     text: Optional[str] = None
     publication_date_from: Optional[str] = None
     publication_date_to: Optional[str] = None
-    country: Optional[str] = None  # строка вида "DEU,FRA,ITA"
+    country: Optional[str] = None
 
 
 class SearchRequest(BaseModel):
@@ -62,8 +62,8 @@ class Notice(BaseModel):
     deadline_date: Optional[str] = None
     title: Optional[str] = None
     country: Optional[str] = None
-    region: Optional[str] = None
     city: Optional[str] = None
+    performance_city: Optional[str] = None
 
 
 class SearchResponse(BaseModel):
@@ -91,10 +91,6 @@ def extract_multilang_field(field_value: Any, default: str = "N/A") -> str:
     """
     Извлекает значение из многоязычного поля TED.
     Приоритет: eng -> deu -> fra -> любой первый доступный.
-    field_value может быть:
-      - строкой
-      - словарём вида {"eng": ["Title"], "deu": ["Titel"]}
-      - списком строк
     """
     if isinstance(field_value, str):
         return field_value
@@ -137,7 +133,7 @@ async def search_notices(request: SearchRequest):
         if request.filters:
             if request.filters.text:
                 text = request.filters.text.strip()
-                ft_term = f'(notice-title ~ "{text}" OR buyer-name ~ "{text}")'
+                ft_term = f'(notice-title ~ "{text}")'
                 query_terms.append(ft_term)
 
             if request.filters.country:
@@ -148,10 +144,10 @@ async def search_notices(request: SearchRequest):
                 ]
                 if countries:
                     if len(countries) == 1:
-                        query_terms.append(f"(buyer-country = {countries[0]})")
+                        query_terms.append(f"(organisation-country-buyer = {countries[0]})")
                     else:
                         or_terms = " OR ".join(
-                            f"(buyer-country = {c})" for c in countries
+                            f"(organisation-country-buyer = {c})" for c in countries
                         )
                         query_terms.append(f"({or_terms})")
 
@@ -213,18 +209,18 @@ async def search_notices(request: SearchRequest):
             notice = Notice(
                 publication_number=item.get("publication-number", "N/A"),
                 publication_date=normalize_date(item.get("publication-date")),
-                deadline_date=normalize_date(item.get("submission-deadline")),
+                deadline_date=normalize_date(item.get("deadline-receipt-tender-date-lot")),
                 title=extract_multilang_field(
                     item.get("notice-title"), "No title"
                 ),
                 country=extract_multilang_field(
-                    item.get("buyer-country"), "Unknown"
-                ),
-                region=extract_multilang_field(
-                    item.get("buyer-region"), ""
+                    item.get("organisation-country-buyer"), "Unknown"
                 ),
                 city=extract_multilang_field(
-                    item.get("buyer-city"), ""
+                    item.get("organisation-city-buyer"), ""
+                ),
+                performance_city=extract_multilang_field(
+                    item.get("place-of-performance-city-lot"), ""
                 ),
             )
             notices.append(notice)

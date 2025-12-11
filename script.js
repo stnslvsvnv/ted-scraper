@@ -1,4 +1,4 @@
-/* TED Scraper Frontend – версия с двумя датами и без покупателя */
+/* TED Scraper Frontend – версия с правильными полями */
 
 const CONFIG = {
     BACKEND_BASE_URL: window.location.origin,
@@ -92,7 +92,6 @@ function getSearchRequest() {
     let publicationDateFrom = elements.dateFrom?.value?.trim() || null;
     let publicationDateTo = elements.dateTo?.value?.trim() || null;
 
-    // multiple select стран
     let country = null;
     if (elements.countryInput && elements.countryInput.options) {
         const selected = Array.from(elements.countryInput.options)
@@ -187,8 +186,10 @@ function displayResults(data) {
 
         let locationParts = [];
         if (notice.country) locationParts.push(notice.country);
-        if (notice.region) locationParts.push(notice.region);
         if (notice.city) locationParts.push(notice.city);
+        if (notice.performance_city && notice.performance_city !== notice.city) {
+            locationParts.push(`(${notice.performance_city})`);
+        }
         const location = locationParts.join(' / ') || '-';
 
         row.innerHTML = `
