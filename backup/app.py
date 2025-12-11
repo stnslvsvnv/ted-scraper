@@ -1,5 +1,5 @@
 """
-TED Scraper Backend – версия с датой дедлайна и адресом покупателя
+TED Scraper Backend – версия с приоритетом английского языка
 """
 
 from fastapi import FastAPI, HTTPException
@@ -27,20 +27,17 @@ app.add_middleware(
 
 TED_API_URL = "https://api.ted.europa.eu/v3/notices/search"
 
-# добавляем поля для дедлайна и адреса покупателя
 SUPPORTED_FIELDS = [
     "publication-number",
     "publication-date",
     "notice-title",
+    "buyer-name",
     "buyer-country",
-    "buyer-region",
-    "buyer-city",
-    "submission-deadline",   # срок подачи (если есть в еForms)
 ]
 
 API_KEY = os.getenv("TED_API_KEY", None)  # export TED_API_KEY=your_key
 
-PREFERRED_LANGS = ["eng", "deu", "fra"]  # сначала англ., затем нем., франц.
+PREFERRED_LANGS = ["eng", "deu", "fra"]  # сначала англ., потом нем., франц.
 
 
 class Filters(BaseModel):
@@ -59,11 +56,9 @@ class SearchRequest(BaseModel):
 class Notice(BaseModel):
     publication_number: str
     publication_date: Optional[str] = None
-    deadline_date: Optional[str] = None
     title: Optional[str] = None
+    buyer: Optional[str] = None
     country: Optional[str] = None
-    region: Optional[str] = None
-    city: Optional[str] = None
 
 
 class SearchResponse(BaseModel):
@@ -96,10 +91,13 @@ def extract_multilang_field(field_value: Any, default: str = "N/A") -> str:
       - словарём вида {"eng": ["Title"], "deu": ["Titel"]}
       - списком строк
     """
+    # простая строка
     if isinstance(field_value, str):
         return field_value
 
+    # словарь языков
     if isinstance(field_value, dict):
+        # приоритетные языки
         for lang in PREFERRED_LANGS:
             if lang in field_value:
                 val = field_value[lang]
@@ -107,26 +105,18 @@ def extract_multilang_field(field_value: Any, default: str = "N/A") -> str:
                     return val[0]
                 if isinstance(val, str):
                     return val
+        # первый доступный язык
         for val in field_value.values():
             if isinstance(val, list) and val:
                 return val[0]
             if isinstance(val, str):
                 return val
 
+    # список строк
     if isinstance(field_value, list) and field_value:
         return field_value[0] if isinstance(field_value[0], str) else str(field_value[0])
 
     return default
-
-
-def normalize_date(date_str: Optional[str]) -> Optional[str]:
-    """
-    TED часто отдаёт даты как '2025-09-30+02:00'.
-    Берём только первые 10 символов 'YYYY-MM-DD'.
-    """
-    if not date_str or not isinstance(date_str, str):
-        return None
-    return date_str[:10]
 
 
 @app.post("/search")
@@ -137,10 +127,12 @@ async def search_notices(request: SearchRequest):
         if request.filters:
             if request.filters.text:
                 text = request.filters.text.strip()
+                # полнотекстовый поиск, текст обязательно в кавычках
                 ft_term = f'(notice-title ~ "{text}" OR buyer-name ~ "{text}")'
                 query_terms.append(ft_term)
 
             if request.filters.country:
+                # поддержка нескольких стран: "DEU,FRA" -> (buyer-country = DEU OR buyer-country = FRA)
                 countries = [
                     c.strip().upper()
                     for c in request.filters.country.split(",")
@@ -202,6 +194,8 @@ async def search_notices(request: SearchRequest):
             )
 
         data = response.json()
+
+        # v3 возвращает 'notices', а не 'results'
         notices_data = data.get("notices", [])
         total = data.get("total", len(notices_data))
 
@@ -212,19 +206,15 @@ async def search_notices(request: SearchRequest):
         for item in notices_data:
             notice = Notice(
                 publication_number=item.get("publication-number", "N/A"),
-                publication_date=normalize_date(item.get("publication-date")),
-                deadline_date=normalize_date(item.get("submission-deadline")),
+                publication_date=item.get("publication-date"),
                 title=extract_multilang_field(
                     item.get("notice-title"), "No title"
                 ),
+                buyer=extract_multilang_field(
+                    item.get("buyer-name"), "Unknown buyer"
+                ),
                 country=extract_multilang_field(
                     item.get("buyer-country"), "Unknown"
-                ),
-                region=extract_multilang_field(
-                    item.get("buyer-region"), ""
-                ),
-                city=extract_multilang_field(
-                    item.get("buyer-city"), ""
                 ),
             )
             notices.append(notice)

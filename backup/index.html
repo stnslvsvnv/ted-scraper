@@ -10,8 +10,7 @@
 <div class="container">
     <header>
         <h1>TED Европа Поиск тендеров</h1>
-        <div>
-            Статус backend:
+        <div>Статус backend:
             <span id="backend-status" class="backend-status bg-secondary">Проверка...</span>
         </div>
     </header>
@@ -36,8 +35,10 @@
         <div class="form-group">
             <label for="country">Страна (можно несколько):</label>
             <select id="country" name="country" multiple size="6" class="form-control">
+                <!-- список стран из документации TED (ISO alpha-3) -->
                 <option value="">— не выбрано —</option>
                 <option value="ALB">ALB — Albania</option>
+                <option value="AND">AND — Andorra</option>
                 <option value="AUT">AUT — Austria</option>
                 <option value="BEL">BEL — Belgium</option>
                 <option value="BGR">BGR — Bulgaria</option>
@@ -75,7 +76,9 @@
                 <option value="UKR">UKR — Ukraine</option>
                 <option value="XKX">XKX — Kosovo</option>
             </select>
-            <small class="form-text">Используй Ctrl / Cmd для выбора нескольких стран.</small>
+            <small class="form-text">
+                Используй Ctrl / Cmd для выбора нескольких стран. Коды совпадают с buyer-country в TED.
+            </small>
         </div>
 
         <div class="form-group">
@@ -101,11 +104,11 @@
         <table class="table">
             <thead>
             <tr>
-                <th class="col-pubnum">Номер</th>
-                <th>Дата публикации</th>
-                <th>Дедлайн</th>
-                <th class="col-title">Описание</th>
-                <th>Страна / регион / город</th>
+                <th>Номер публикации</th>
+                <th>Дата</th>
+                <th>Заголовок</th>
+                <th>Покупатель</th>
+                <th>Страна</th>
             </tr>
             </thead>
             <tbody id="results-tbody"></tbody>

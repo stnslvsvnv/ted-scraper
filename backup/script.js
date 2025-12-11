@@ -1,4 +1,4 @@
-/* TED Scraper Frontend – версия с двумя датами и без покупателя */
+/* TED Scraper Frontend - исходная логика + мультивыбор стран */
 
 const CONFIG = {
     BACKEND_BASE_URL: window.location.origin,
@@ -7,15 +7,17 @@ const CONFIG = {
 
 console.log('Backend URL:', CONFIG.BACKEND_BASE_URL);
 
+// State
 let currentSearchData = null;
 let currentPage = 1;
 
+// DOM Elements
 const elements = {
     searchForm: document.getElementById('search-form'),
     textInput: document.getElementById('text'),
     dateFrom: document.getElementById('publication-date-from'),
     dateTo: document.getElementById('publication-date-to'),
-    countryInput: document.getElementById('country'),
+    countryInput: document.getElementById('country'),   // теперь <select multiple>
     pageSize: document.getElementById('page-size') || { value: '25' },
     searchBtn: document.getElementById('search-btn'),
     backendStatus: document.getElementById('backend-status'),
@@ -27,14 +29,16 @@ const elements = {
     searchStatus: document.getElementById('search-status')
 };
 
+// Initialize
 document.addEventListener('DOMContentLoaded', () => {
     console.log('TED Scraper Frontend loaded');
     setupEventListeners();
     checkBackendStatus();
     setDefaultDates();
-    performSearch();
+    performSearch(); // как в исходной версии
 });
 
+// Events
 function setupEventListeners() {
     if (elements.searchForm) {
         elements.searchForm.addEventListener('submit', (e) => {
@@ -52,6 +56,7 @@ function setupEventListeners() {
     }
 }
 
+// Даты по умолчанию (как раньше)
 function setDefaultDates() {
     const today = new Date();
     const fromDate = new Date(today.getFullYear(), 9, 1);
@@ -61,6 +66,7 @@ function setDefaultDates() {
     if (elements.dateTo) elements.dateTo.value = toStr;
 }
 
+// Backend health
 async function checkBackendStatus() {
     try {
         const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/health`, { timeout: 5000 });
@@ -87,19 +93,20 @@ function setBackendOffline() {
     }
 }
 
+// Сбор данных формы (изменена только страна)
 function getSearchRequest() {
     const text = elements.textInput?.value?.trim() || null;
     let publicationDateFrom = elements.dateFrom?.value?.trim() || null;
     let publicationDateTo = elements.dateTo?.value?.trim() || null;
 
-    // multiple select стран
+    // читаем выбранные опции select[multiple]
     let country = null;
     if (elements.countryInput && elements.countryInput.options) {
         const selected = Array.from(elements.countryInput.options)
             .filter(o => o.selected && o.value)
             .map(o => o.value);
         if (selected.length) {
-            country = selected.join(',');
+            country = selected.join(','); // например "DEU,FRA,ITA"
         }
     }
 
@@ -120,6 +127,7 @@ function getSearchRequest() {
     };
 }
 
+// Поиск (как в исходнике)
 async function performSearch() {
     try {
         if (elements.searchBtn) elements.searchBtn.disabled = true;
@@ -166,45 +174,43 @@ async function performSearch() {
     }
 }
 
+// Рендер результатов (как было)
 function displayResults(data) {
     if (!data.notices || data.notices.length === 0) {
         showNoResults();
         return;
     }
     if (elements.resultsContainer) elements.resultsContainer.style.display = 'block';
-    if (!elements.resultsTbody) return;
-
-    elements.resultsTbody.innerHTML = '';
-
-    data.notices.forEach((notice) => {
-        const row = document.createElement('tr');
-        row.dataset.publicationNumber = notice.publication_number;
-
-        const pubNum = notice.publication_number || 'N/A';
-        const pubDate = notice.publication_date || '-';
-        const deadline = notice.deadline_date || '-';
-        const title = notice.title || 'Нет заголовка';
-
-        let locationParts = [];
-        if (notice.country) locationParts.push(notice.country);
-        if (notice.region) locationParts.push(notice.region);
-        if (notice.city) locationParts.push(notice.city);
-        const location = locationParts.join(' / ') || '-';
-
-        row.innerHTML = `
-            <td class="col-pubnum">${pubNum}</td>
-            <td>${pubDate}</td>
-            <td>${deadline}</td>
-            <td class="col-title">${title}</td>
-            <td>${location}</td>
-        `;
-        elements.resultsTbody.appendChild(row);
-    });
+    if (elements.resultsTbody) {
+        elements.resultsTbody.innerHTML = '';
+        data.notices.forEach((notice) => {
+            const row = document.createElement('tr');
+            row.dataset.publicationNumber = notice.publication_number;
+            const pubNum = notice.publication_number || 'N/A';
+            const date = notice.publication_date ? new Date(notice.publication_date).toLocaleDateString('ru-RU') : '-';
+            const title = notice.title || 'Нет заголовка';
+            const buyer = notice.buyer || 'Неизвестный';
+            const country = notice.country || 'Неизвестно';
+            row.innerHTML = `
+                <td>${pubNum}</td>
+                <td>${date}</td>
+                <td>${title}</td>
+                <td>${buyer}</td>
+                <td>${country}</td>
+            `;
+            elements.resultsTbody.appendChild(row);
+        });
+    }
 }
 
+// Служебные функции
 function showNoResults() {
-    if (elements.emptyState) elements.emptyState.style.display = 'block';
-    if (elements.resultsContainer) elements.resultsContainer.style.display = 'none';
+    if (elements.emptyState) {
+        elements.emptyState.style.display = 'block';
+    }
+    if (elements.resultsContainer) {
+        elements.resultsContainer.style.display = 'none';
+    }
     if (elements.searchStatus) {
         elements.searchStatus.textContent = '0 результатов';
         elements.searchStatus.classList.add('alert-warning');
