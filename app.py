@@ -1,5 +1,5 @@
 """
-TED Scraper Backend – ПОЛНАЯ обработка мультиязычных/вложенных данных TED v3
+TED Scraper Backend – БЕЗ Pydantic проблем с мультиязычными данными
 """
 
 from fastapi import FastAPI, HTTPException
@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Dict, Union
 import httpx
 import logging
 import os
@@ -36,36 +36,38 @@ SEARCH_FIELDS = [
     "buyer-name",
     "buyer-country",
     "deadline-date-part",
-    "organisation-city-buyer",
-    "sme-part",
-    "touchpoint-gateway-ted-esen"
+    "organisation-city-buyer"
 ]
 
-def extract_text(value: Any) -> Optional[str]:
-    """Полная обработка TED API структур: dict/list/nested → string"""
+def safe_extract(value: Any) -> str:
+    """Агрессивная обработка TED данных → строка"""
     if value is None:
-        return None
+        return ""
     
+    # Если уже строка
     if isinstance(value, str):
-        return value
+        return value[:200]
     
-    if isinstance(value, dict):
-        # Мультиязычный текст: {'deu': 'text'} → 'text'
-        first_value = next(iter(value.values()), None)
-        return extract_text(first_value)
-    
-    if isinstance(value, list):
-        # Список: ['text'] → 'text' или первый элемент
-        if len(value) == 0:
-            return None
-        first_value = value[0]
-        return extract_text(first_value)
-    
+    # Если число
     if isinstance(value, (int, float)):
         return str(value)
     
-    # Fallback: обрезаем длинный текст
-    return str(value)[:200]
+    # Рекурсивно разбираем
+    def dig_deep(v):
+        if isinstance(v, str):
+            return v[:200]
+        if isinstance(v, (int, float)):
+            return str(v)
+        if isinstance(v, list) and len(v) > 0:
+            return dig_deep(v[0])
+        if isinstance(v, dict):
+            # Первый язык из мультиязычного
+            first_val = next(iter(v.values()), None)
+            if first_val:
+                return dig_deep(first_val)
+        return str(v)[:200]
+    
+    return dig_deep(value)
 
 class Filters(BaseModel):
     text: Optional[str] = None
@@ -80,19 +82,20 @@ class SearchRequest(BaseModel):
     page: int = 1
     limit: int = 25
 
-class Notice(BaseModel):
+# ПРОСТАЯ модель БЕЗ Optional[str] проблем
+class SimpleNotice(BaseModel):
     publication_number: str
-    publication_date: Optional[str] = None
-    deadline_date: Optional[str] = None
-    title: Optional[str] = None
-    buyer: Optional[str] = None
-    country: Optional[str] = None
-    city: Optional[str] = None
-    cpv_code: Optional[str] = None
+    publication_date: str = ""
+    deadline_date: str = ""
+    title: str = ""
+    buyer: str = ""
+    country: str = ""
+    city: str = ""
+    cpv_code: str = ""
 
 class SearchResponse(BaseModel):
     total: int
-    notices: List[Notice]
+    notices: List[SimpleNotice]
 
 @app.get("/health")
 async def health():
@@ -190,27 +193,31 @@ async def search_notices(req: SearchRequest):
 
             data = resp.json()
             total = data.get("totalNoticeCount", 0)
-            notices_out: List[dict] = []  # Создаем dict, потом конвертируем
             
-            for item in data.get("notices", []):
-                notice_data = {
-                    "publication_number": extract_text(item.get("publication-number")) or "N/A",
-                    "publication_date": extract_text(item.get("publication-date")),
-                    "deadline_date": extract_text(item.get("deadline-date-part")),
-                    "title": extract_text(item.get("notice-title")),
-                    "buyer": extract_text(item.get("buyer-name")),
-                    "country": extract_text(item.get("buyer-country")),
-                    "city": extract_text(item.get("organisation-city-buyer")),
-                    "cpv_code": None,
-                }
-                logger.debug(f"Parsed notice: {notice_data}")  # DEBUG
-                notices_out.append(notice_data)
+            notices_out = []
+            raw_notices = data.get("notices", [])
+            logger.info(f"Raw notices count: {len(raw_notices)}")
             
-            # Создаем Pydantic объекты после парсинга
-            notices = [Notice(**notice) for notice in notices_out]
+            for i, item in enumerate(raw_notices):
+                try:
+                    notice = SimpleNotice(
+                        publication_number=safe_extract(item.get("publication-number", "N/A")),
+                        publication_date=safe_extract(item.get("publication-date")),
+                        deadline_date=safe_extract(item.get("deadline-date-part")),
+                        title=safe_extract(item.get("notice-title")),
+                        buyer=safe_extract(item.get("buyer-name")),
+                        country=safe_extract(item.get("buyer-country")),
+                        city=safe_extract(item.get("organisation-city-buyer")),
+                        cpv_code=""
+                    )
+                    notices_out.append(notice)
+                    logger.debug(f"Parsed notice {i+1}: {notice.buyer[:50]}...")
+                except Exception as parse_err:
+                    logger.error(f"Parse error notice {i}: {parse_err}")
+                    continue
             
-            logger.info(f"Returned {len(notices)} notices out of {total}")
-            return SearchResponse(total=total, notices=notices)
+            logger.info(f"Successfully parsed {len(notices_out)}/{len(raw_notices)} notices")
+            return SearchResponse(total=total, notices=notices_out)
             
     except httpx.RequestError as e:
         logger.error(f"Connection error: {e}")
