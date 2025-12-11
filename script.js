@@ -1,177 +1,287 @@
-const API_BASE = "http://localhost:8000";
+/* TED Scraper Frontend с accordion и проверками на null */
 
+const CONFIG = {
+    BACKEND_BASE_URL: window.location.origin,
+    REQUEST_TIMEOUT: 30000,
+};
+
+console.log("Backend URL:", CONFIG.BACKEND_BASE_URL);
+
+// Глобальное состояние
 let currentPage = 1;
-let currentFilters = {};
 let totalResults = 0;
 
-// Инициализация
+// Селектор DOM‑элементов
+const elements = {
+    searchForm: document.getElementById("search-form"),
+    textInput: document.getElementById("text"),
+    dateFrom: document.getElementById("publication-date-from"),
+    dateTo: document.getElementById("publication-date-to"),
+    countryInput: document.getElementById("country"),
+    pageSize: document.getElementById("page-size"),
+    searchBtn: document.getElementById("search-btn"),
+
+    backendStatus: document.getElementById("backend-status"),
+    resultsContainer: document.getElementById("results-container"),
+    resultsTbody: document.getElementById("results-tbody"),
+    emptyState: document.getElementById("empty-state"),
+    loadingSpinner: document.getElementById("loading-spinner"),
+    errorAlert: document.getElementById("error-alert"),
+    searchStatus: document.getElementById("search-status"),
+};
+
 document.addEventListener("DOMContentLoaded", () => {
-    document.getElementById("searchBtn").addEventListener("click", performSearch);
-    document.getElementById("prevPage").addEventListener("click", () => changePage(-1));
-    document.getElementById("nextPage").addEventListener("click", () => changePage(1));
-
-    // Enter для поиска
-    ["searchText", "countryFilter", "dateFrom", "dateTo"].forEach(id => {
-        document.getElementById(id)?.addEventListener("keypress", (e) => {
-            if (e.key === "Enter") performSearch();
-        });
-    });
-
-    // Первоначальный поиск
+    console.log("TED Scraper Frontend loaded");
+    setupEventListeners();
+    setDefaultDates();
+    checkBackendStatus();
     performSearch();
 });
 
-async function performSearch() {
+// Навешиваем обработчики только если элементы есть
+function setupEventListeners() {
+    if (elements.searchForm) {
+        elements.searchForm.addEventListener("submit", (e) => {
+            e.preventDefault();
+            currentPage = 1;
+            performSearch();
+        });
+    }
+
+    if (elements.searchBtn) {
+        elements.searchBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            currentPage = 1;
+            performSearch();
+        });
+    }
+
+    // Кнопка очистки фильтров
+    if (elements.searchForm) {
+        const clearBtn = document.createElement("button");
+        clearBtn.type = "button";
+        clearBtn.textContent = "Очистить фильтры";
+        clearBtn.classList.add("btn", "btn-secondary", "ms-2");
+        clearBtn.onclick = () => clearForm();
+        elements.searchForm.appendChild(clearBtn);
+    }
+
+    // Клик по строке таблицы — открыть / закрыть accordion
+    document.addEventListener("click", (e) => {
+        const row = e.target.closest("tbody tr.notice-row");
+        if (row) {
+            const pubNum = row.dataset.publicationNumber;
+            if (pubNum) {
+                toggleAccordion(row, pubNum);
+            }
+        }
+    });
+}
+
+// Даты по умолчанию
+function setDefaultDates() {
+    const today = new Date();
+    const fromDate = new Date(today.getFullYear(), 9, 1); // 1 октября текущего года
+    const fromStr = fromDate.toISOString().split("T")[0];
+    const toStr = today.toISOString().split("T")[0];
+
+    if (elements.dateFrom) elements.dateFrom.value = fromStr;
+    if (elements.dateTo) elements.dateTo.value = toStr;
+}
+
+// Очистка формы
+function clearForm() {
+    if (elements.textInput) elements.textInput.value = "";
+    if (elements.countryInput) elements.countryInput.value = "";
+    if (elements.pageSize) elements.pageSize.value = "25";
+    setDefaultDates();
     currentPage = 1;
-    currentFilters = {
-        text: document.getElementById("searchText").value.trim() || null,
-        country: document.getElementById("countryFilter").value.trim() || null,
-        publication_date_from: document.getElementById("dateFrom").value || null,
-        publication_date_to: document.getElementById("dateTo").value || null,
-    };
-
-    await fetchResults();
+    performSearch();
 }
 
-async function changePage(delta) {
-    const newPage = currentPage + delta;
-    if (newPage < 1) return;
-
-    const totalPages = Math.ceil(totalResults / 25);
-    if (newPage > totalPages) return;
-
-    currentPage = newPage;
-    await fetchResults();
-}
-
-async function fetchResults() {
-    const resultsDiv = document.getElementById("results");
-    const tbody = document.querySelector("#resultsTable tbody");
-    const statusDiv = document.getElementById("status");
-    const pagination = document.getElementById("pagination");
-
-    resultsDiv.style.display = "none";
-    statusDiv.textContent = "Searching...";
-    statusDiv.className = "status info";
-
+// Проверка backend /health
+async function checkBackendStatus() {
     try {
-        const response = await fetch(`${API_BASE}/search`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                filters: currentFilters,
-                page: currentPage,
-                limit: 25,
-            }),
-        });
-
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.detail || "Search failed");
+        const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/health`);
+        if (response.ok) {
+            if (elements.backendStatus) {
+                elements.backendStatus.textContent = "Online";
+                elements.backendStatus.classList.remove("bg-danger");
+                elements.backendStatus.classList.add("bg-success");
+            }
+        } else {
+            setBackendOffline();
         }
+    } catch (e) {
+        console.warn("Backend check failed:", e);
+        setBackendOffline();
+    }
+    setTimeout(checkBackendStatus, 30000);
+}
 
-        const data = await response.json();
-        totalResults = data.total;
-
-        tbody.innerHTML = "";
-
-        if (data.notices.length === 0) {
-            statusDiv.textContent = "No results found";
-            statusDiv.className = "status warning";
-            return;
-        }
-
-        data.notices.forEach((notice) => {
-            const row = createNoticeRow(notice);
-            tbody.appendChild(row);
-        });
-
-        updatePaginationInfo();
-        resultsDiv.style.display = "block";
-        statusDiv.textContent = "";
-        pagination.style.display = "flex";
-
-    } catch (error) {
-        console.error("Search error:", error);
-        statusDiv.textContent = `Error: ${error.message}`;
-        statusDiv.className = "status error";
+function setBackendOffline() {
+    if (elements.backendStatus) {
+        elements.backendStatus.textContent = "Offline";
+        elements.backendStatus.classList.remove("bg-success");
+        elements.backendStatus.classList.add("bg-danger");
     }
 }
 
-function createNoticeRow(notice) {
-    const row = document.createElement("tr");
-    row.className = "notice-row";
-    row.dataset.publicationNumber = notice.publication_number;
+// Формирование запроса
+function getSearchRequest() {
+    const text = elements.textInput?.value?.trim() || null;
+    let publicationDateFrom = elements.dateFrom?.value?.trim() || null;
+    let publicationDateTo = elements.dateTo?.value?.trim() || null;
 
-    row.innerHTML = `
-        <td>${notice.publication_number || "—"}</td>
-        <td>${notice.publication_date || "—"}</td>
-        <td>${notice.deadline_date || "—"}</td>
-        <td>${notice.title || "—"}</td>
-        <td>${notice.country || "—"}</td>
-        <td>${notice.city || "—"}</td>
-        <td>${notice.performance_city || "—"}</td>
-    `;
+    // если даты не заданы — подставляем разумный диапазон
+    if (!publicationDateFrom) publicationDateFrom = "2024-10-01";
+    if (!publicationDateTo) publicationDateTo = new Date().toISOString().split("T")[0];
 
-    row.addEventListener("click", () => toggleAccordion(row));
-    return row;
+    let country = null;
+    if (elements.countryInput) {
+        const selected = Array.from(elements.countryInput.selectedOptions)
+            .map((o) => o.value)
+            .filter((v) => v);
+        country = selected.length ? selected.join(",") : null;
+    }
+
+    const limit = parseInt(elements.pageSize?.value || "25", 10) || 25;
+
+    return {
+        filters: {
+            text,
+            publication_date_from: publicationDateFrom,
+            publication_date_to: publicationDateTo,
+            country,
+        },
+        page: currentPage,
+        limit,
+    };
 }
 
-async function toggleAccordion(row) {
-    const publicationNumber = row.dataset.publicationNumber;
-    const existingDetail = row.nextElementSibling;
+// Поиск
+async function performSearch() {
+    try {
+        if (elements.searchBtn) elements.searchBtn.disabled = true;
+        if (elements.loadingSpinner) elements.loadingSpinner.style.display = "block";
+        hideError();
+        hideEmptyState();
+        hideResults();
+        showStatus("Поиск...");
 
-    // Если уже открыто — закрыть
+        const request = getSearchRequest();
+        console.log("Sending search request:", request);
+
+        const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/search`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(request),
+        });
+
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.detail || `HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        totalResults = data.total || 0;
+        displayResults(data);
+
+        if (elements.searchStatus) {
+            elements.searchStatus.className = "alert alert-success";
+            elements.searchStatus.style.display = "block";
+            elements.searchStatus.textContent = `${data.notices.length} результатов из ${data.total}`;
+        }
+    } catch (e) {
+        console.error("Search error:", e);
+        showError(`Ошибка поиска: ${e.message}`);
+    } finally {
+        if (elements.searchBtn) elements.searchBtn.disabled = false;
+        if (elements.loadingSpinner) elements.loadingSpinner.style.display = "none";
+    }
+}
+
+// Отображение результатов
+function displayResults(data) {
+    if (!data.notices || !data.notices.length) {
+        showNoResults();
+        return;
+    }
+
+    if (elements.resultsContainer) elements.resultsContainer.style.display = "block";
+    if (!elements.resultsTbody) return;
+
+    elements.resultsTbody.innerHTML = "";
+
+    data.notices.forEach((n) => {
+        const row = document.createElement("tr");
+        row.className = "notice-row";
+        row.dataset.publicationNumber = n.publication_number;
+
+        row.innerHTML = `
+            <td>${n.publication_number || "—"}</td>
+            <td>${n.publication_date || "—"}</td>
+            <td>${n.deadline_date || "—"}</td>
+            <td>${n.title || "—"}</td>
+            <td>${n.country || "—"}</td>
+            <td>${n.city || "—"}</td>
+            <td>${n.performance_city || "—"}</td>
+        `;
+
+        elements.resultsTbody.appendChild(row);
+    });
+}
+
+// Accordion: раскрытие строки
+async function toggleAccordion(row, publicationNumber) {
+    const existingDetail = row.nextElementSibling;
     if (existingDetail && existingDetail.classList.contains("detail-row")) {
         existingDetail.remove();
         row.classList.remove("expanded");
         return;
     }
 
-    // Закрыть все другие открытые
-    document.querySelectorAll(".detail-row").forEach(el => el.remove());
-    document.querySelectorAll(".notice-row").forEach(r => r.classList.remove("expanded"));
+    // закрываем другие
+    document.querySelectorAll(".detail-row").forEach((tr) => tr.remove());
+    document.querySelectorAll(".notice-row").forEach((r) => r.classList.remove("expanded"));
 
     row.classList.add("expanded");
 
-    // Показать загрузку
-    const loadingRow = document.createElement("tr");
-    loadingRow.className = "detail-row";
-    loadingRow.innerHTML = `<td colspan="7" class="detail-content"><div class="loading">Loading details...</div></td>`;
-    row.after(loadingRow);
+    const detailRow = document.createElement("tr");
+    detailRow.className = "detail-row";
+    detailRow.innerHTML =
+        '<td colspan="7" class="detail-content"><div class="loading">Loading details...</div></td>';
+    row.after(detailRow);
 
     try {
-        const response = await fetch(`${API_BASE}/notice/${publicationNumber}`);
-        if (!response.ok) {
-            throw new Error("Failed to load details");
-        }
-
+        const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/notice/${publicationNumber}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const detail = await response.json();
-        loadingRow.querySelector("td").innerHTML = renderDetail(detail);
+        detailRow.querySelector("td").innerHTML = renderDetail(detail);
 
-        // Добавить обработчик для вложенного accordion (Notice)
-        const noticeToggle = loadingRow.querySelector(".notice-toggle");
-        if (noticeToggle) {
-            noticeToggle.addEventListener("click", (e) => {
+        const toggleBtn = detailRow.querySelector(".notice-toggle");
+        const noticeContent = detailRow.querySelector(".notice-content");
+        if (toggleBtn && noticeContent) {
+            toggleBtn.addEventListener("click", (e) => {
                 e.stopPropagation();
-                const noticeContent = loadingRow.querySelector(".notice-content");
                 noticeContent.classList.toggle("open");
-                noticeToggle.textContent = noticeContent.classList.contains("open") 
-                    ? "▼ Hide Full Notice" 
+                toggleBtn.textContent = noticeContent.classList.contains("open")
+                    ? "▼ Hide Full Notice"
                     : "► Show Full Notice";
             });
         }
-
-    } catch (error) {
-        console.error("Error loading detail:", error);
-        loadingRow.querySelector("td").innerHTML = `<div class="error">Failed to load details: ${error.message}</div>`;
+    } catch (e) {
+        console.error("Detail error:", e);
+        detailRow.querySelector("td").innerHTML =
+            `<div class="error">Не удалось загрузить детали: ${e.message}</div>`;
     }
 }
 
+// Разметка для detail
 function renderDetail(detail) {
-    const summary = detail.summary;
-    const lot = summary.lot;
-    const buyer = summary.buyer;
+    const s = detail.summary || {};
+    const lot = s.lot || {};
+    const buyer = s.buyer || {};
 
     return `
         <div class="detail-container">
@@ -183,52 +293,36 @@ function renderDetail(detail) {
             <div class="detail-section">
                 <h3>Summary</h3>
                 <div class="summary-grid">
-                    <div class="summary-item">
-                        <strong>Type:</strong> ${summary.type}
-                    </div>
-                    <div class="summary-item">
-                        <strong>Country:</strong> ${summary.country}
-                    </div>
-                    <div class="summary-item">
-                        <strong>Procedure:</strong> ${summary.procedure_type}
-                    </div>
+                    <div class="summary-item"><strong>Type:</strong> ${s.type || "N/A"}</div>
+                    <div class="summary-item"><strong>Country:</strong> ${s.country || "N/A"}</div>
+                    <div class="summary-item"><strong>Procedure:</strong> ${s.procedure_type || "N/A"}</div>
                 </div>
 
                 <h4>Buyer</h4>
                 <div class="summary-grid">
-                    <div class="summary-item">
-                        <strong>Name:</strong> ${buyer.name}
-                    </div>
-                    <div class="summary-item">
-                        <strong>Email:</strong> <a href="mailto:${buyer.email}">${buyer.email}</a>
-                    </div>
-                    <div class="summary-item">
-                        <strong>Location:</strong> ${buyer.city}, ${buyer.country}
-                    </div>
+                    <div class="summary-item"><strong>Name:</strong> ${buyer.name || "N/A"}</div>
+                    <div class="summary-item"><strong>Email:</strong> ${
+                        buyer.email ? `<a href="mailto:${buyer.email}">${buyer.email}</a>` : "N/A"
+                    }</div>
+                    <div class="summary-item"><strong>Location:</strong> ${
+                        (buyer.city || "") + (buyer.country ? ", " + buyer.country : "")
+                    }</div>
                 </div>
 
-                <h4>${lot.title}</h4>
+                <h4>${lot.title || "LOT"}</h4>
                 <div class="summary-grid">
-                    <div class="summary-item">
-                        <strong>Description:</strong> ${lot.description}
-                    </div>
-                    <div class="summary-item">
-                        <strong>Contract Nature:</strong> ${lot.contract_nature}
-                    </div>
-                    <div class="summary-item">
-                        <strong>Classification:</strong> ${lot.classification}
-                    </div>
-                    <div class="summary-item">
-                        <strong>Place:</strong> ${lot.place_of_performance.city}, ${lot.place_of_performance.country}
-                    </div>
-                    <div class="summary-item">
-                        <strong>Start Date:</strong> ${lot.start_date || "N/A"}
-                    </div>
-                    <div class="summary-item">
-                        <strong>End Date:</strong> ${lot.end_date || "N/A"}
-                    </div>
+                    <div class="summary-item"><strong>Description:</strong> ${lot.description || "N/A"}</div>
+                    <div class="summary-item"><strong>Contract Nature:</strong> ${lot.contract_nature || "N/A"}</div>
+                    <div class="summary-item"><strong>Classification:</strong> ${lot.classification || "N/A"}</div>
+                    <div class="summary-item"><strong>Place:</strong> ${
+                        (lot.place_of_performance?.city || "N/A") +
+                        ", " +
+                        (lot.place_of_performance?.country || "N/A")
+                    }</div>
+                    <div class="summary-item"><strong>Start Date:</strong> ${lot.start_date || "N/A"}</div>
+                    <div class="summary-item"><strong>End Date:</strong> ${lot.end_date || "N/A"}</div>
                     <div class="summary-item deadline-highlight">
-                        <strong>Deadline:</strong> ${lot.deadline.date || "N/A"} ${lot.deadline.time || ""}
+                        <strong>Deadline:</strong> ${(lot.deadline?.date || "N/A") + " " + (lot.deadline?.time || "")}
                     </div>
                 </div>
             </div>
@@ -238,7 +332,7 @@ function renderDetail(detail) {
                 <div class="notice-content">
                     <h3>Full Notice Details</h3>
                     <div class="notice-fields">
-                        ${renderFullNotice(detail.full_notice)}
+                        ${renderFullNotice(detail.full_notice || {})}
                     </div>
                 </div>
             </div>
@@ -246,20 +340,52 @@ function renderDetail(detail) {
     `;
 }
 
-function renderFullNotice(fullNotice) {
-    return Object.entries(fullNotice)
-        .map(([key, value]) => `
-            <div class="notice-field">
-                <strong>${key}:</strong> <span>${value}</span>
-            </div>
-        `)
+function renderFullNotice(full) {
+    return Object.entries(full)
+        .map(
+            ([k, v]) =>
+                `<div class="notice-field"><strong>${k}:</strong> <span>${String(v)}</span></div>`
+        )
         .join("");
 }
 
-function updatePaginationInfo() {
-    const totalPages = Math.ceil(totalResults / 25);
-    document.getElementById("pageInfo").textContent = 
-        `Page ${currentPage} of ${totalPages} (Total: ${totalResults} results)`;
-    document.getElementById("prevPage").disabled = currentPage === 1;
-    document.getElementById("nextPage").disabled = currentPage >= totalPages;
+// Вспомогательные функции отображения
+function showNoResults() {
+    if (elements.emptyState) elements.emptyState.style.display = "block";
+    if (elements.resultsContainer) elements.resultsContainer.style.display = "none";
+    if (elements.searchStatus) {
+        elements.searchStatus.style.display = "block";
+        elements.searchStatus.className = "alert alert-warning";
+        elements.searchStatus.textContent = "0 результатов";
+    }
+}
+
+function showError(msg) {
+    if (elements.errorAlert) {
+        elements.errorAlert.style.display = "block";
+        elements.errorAlert.textContent = msg;
+        elements.errorAlert.className = "alert alert-danger";
+    }
+}
+
+function hideError() {
+    if (elements.errorAlert) {
+        elements.errorAlert.style.display = "none";
+    }
+}
+
+function hideEmptyState() {
+    if (elements.emptyState) elements.emptyState.style.display = "none";
+}
+
+function hideResults() {
+    if (elements.resultsContainer) elements.resultsContainer.style.display = "none";
+}
+
+function showStatus(msg) {
+    if (elements.searchStatus) {
+        elements.searchStatus.style.display = "block";
+        elements.searchStatus.className = "alert alert-info";
+        elements.searchStatus.textContent = msg;
+    }
 }
