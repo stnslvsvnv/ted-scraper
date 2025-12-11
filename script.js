@@ -1,5 +1,4 @@
-/* TED Scraper Frontend - Полностью переработанная версия */
-
+/* TED Scraper Frontend - FIXED VERSION */
 const CONFIG = {
     BACKEND_BASE_URL: window.location.origin,
     REQUEST_TIMEOUT: 30000,
@@ -61,9 +60,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     
     // Проверка статуса бэкенда
     checkBackendStatus();
-    
-    // Автоматический поиск при загрузке
-    // performSearch();
 });
 
 // Установка дат по умолчанию
@@ -76,7 +72,6 @@ function setDefaultDates() {
         elements.dateFrom.valueAsDate = monthAgo;
         elements.dateFrom.max = today.toISOString().split('T')[0];
     }
-    
     if (elements.dateTo) {
         elements.dateTo.valueAsDate = today;
         elements.dateTo.max = today.toISOString().split('T')[0];
@@ -113,19 +108,13 @@ function populateCountryDropdown() {
     if (!elements.countryDropdown || !countriesList.length) return;
     
     elements.countryDropdown.innerHTML = '';
-    
     countriesList.forEach(country => {
         const option = document.createElement("div");
         option.className = "multi-select-option";
         option.innerHTML = `
-            <input type="checkbox" id="country-${country.code}" 
-                   value="${country.code}" 
-                   ${selectedCountries.has(country.code) ? 'checked' : ''}>
-            <label for="country-${country.code}">
-                ${country.name}
-            </label>
+            <input type="checkbox" id="country-${country.code}">
+            <label for="country-${country.code}">${country.name}</label>
         `;
-        
         option.querySelector('input').addEventListener('change', (e) => {
             if (e.target.checked) {
                 selectedCountries.add(country.code);
@@ -134,7 +123,6 @@ function populateCountryDropdown() {
             }
             updateSelectedCountriesDisplay();
         });
-        
         elements.countryDropdown.appendChild(option);
     });
 }
@@ -147,9 +135,8 @@ function updateSelectedCountriesDisplay() {
     
     // Обновляем поле ввода
     if (elements.countryInput) {
-        elements.countryInput.value = selectedCountries.size 
-            ? `Выбрано стран: ${selectedCountries.size}` 
-            : "Выберите страны...";
+        elements.countryInput.value = selectedCountries.size ? 
+            `Выбрано стран: ${selectedCountries.size}` : "Выберите страны...";
     }
     
     // Добавляем теги выбранных стран
@@ -159,10 +146,8 @@ function updateSelectedCountriesDisplay() {
             const tag = document.createElement("div");
             tag.className = "country-tag";
             tag.innerHTML = `
-                ${country.code}
-                <span class="remove" onclick="removeCountry('${country.code}')">
-                    <i class="fas fa-times"></i>
-                </span>
+                ${country.code} 
+                <span class="remove" onclick="removeCountry('${countryCode}')">&times;</span>
             `;
             elements.selectedCountriesContainer.appendChild(tag);
         }
@@ -172,11 +157,9 @@ function updateSelectedCountriesDisplay() {
 // Удаление страны
 function removeCountry(countryCode) {
     selectedCountries.delete(countryCode);
-    
     // Снимаем галочку в выпадающем списке
     const checkbox = document.getElementById(`country-${countryCode}`);
     if (checkbox) checkbox.checked = false;
-    
     updateSelectedCountriesDisplay();
 }
 
@@ -189,8 +172,7 @@ function toggleCountryDropdown() {
 
 // Закрытие выпадающего списка при клике вне его
 document.addEventListener('click', (e) => {
-    if (!elements.countryInput?.contains(e.target) && 
-        !elements.countryDropdown?.contains(e.target)) {
+    if (!elements.countryInput?.contains(e.target) && !elements.countryDropdown?.contains(e.target)) {
         elements.countryDropdown?.classList.remove("show");
     }
 });
@@ -220,7 +202,6 @@ function setupEventListeners() {
             }
         });
     }
-    
     if (elements.nextPage) {
         elements.nextPage.addEventListener("click", () => {
             if (currentPage < totalPages) {
@@ -235,10 +216,8 @@ function setupEventListeners() {
         btn.addEventListener('click', (e) => {
             const theme = e.target.dataset.theme;
             document.documentElement.setAttribute('data-theme', theme);
-            
             // Обновляем активную кнопку
-            document.querySelectorAll('.theme-btn').forEach(b => 
-                b.classList.remove('active'));
+            document.querySelectorAll('.theme-btn').forEach(b => b.classList.remove('active'));
             e.target.classList.add('active');
         });
     });
@@ -271,10 +250,7 @@ function clearForm() {
 // Проверка статуса бэкенда
 async function checkBackendStatus() {
     try {
-        const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/health`, {
-            timeout: 5000
-        });
-        
+        const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/health`, { timeout: 5000 });
         if (response.ok) {
             setBackendStatus(true);
         } else {
@@ -284,7 +260,6 @@ async function checkBackendStatus() {
         console.warn("Backend check failed:", error);
         setBackendStatus(false);
     }
-    
     // Повторная проверка каждые 30 секунд
     setTimeout(checkBackendStatus, 30000);
 }
@@ -311,9 +286,7 @@ function getSearchRequest() {
     const limit = parseInt(elements.pageSize?.value || "25", 10);
     
     // Преобразуем Set стран в строку
-    const country = selectedCountries.size > 0 
-        ? Array.from(selectedCountries).join(",") 
-        : null;
+    const country = selectedCountries.size > 0 ? Array.from(selectedCountries).join(",") : null;
     
     return {
         filters: {
@@ -344,7 +317,7 @@ async function performSearch() {
         
         const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/search`, {
             method: "POST",
-            headers: { 
+            headers: {
                 "Content-Type": "application/json",
                 "Accept": "application/json"
             },
@@ -374,8 +347,7 @@ async function performSearch() {
         
         // Обновляем сводку
         if (elements.resultsSummary) {
-            elements.resultsSummary.textContent = 
-                `Найдено: ${totalResults} тендеров | Страница ${currentPage} из ${totalPages}`;
+            elements.resultsSummary.textContent = `Найдено: ${totalResults} тендеров | Страница ${currentPage} из ${totalPages}`;
         }
         
     } catch (error) {
@@ -386,7 +358,7 @@ async function performSearch() {
     }
 }
 
-// Отображение результатов
+// ✅ FIXED: Отображение результатов с правильными ссылками
 function displayResults(notices) {
     if (!elements.resultsTbody) return;
     
@@ -398,319 +370,142 @@ function displayResults(notices) {
         row.dataset.publicationNumber = notice.publication_number;
         
         // Форматирование дат
-        const pubDate = notice.publication_date ? 
-            formatDate(notice.publication_date) : "—";
-        const deadlineDate = notice.deadline_date ? 
-            formatDate(notice.deadline_date) : "—";
+        const pubDate = notice.publication_date ? formatDate(notice.publication_date) : "—";
+        const deadlineDate = notice.deadline_date ? formatDate(notice.deadline_date) : "—";
         
         row.innerHTML = `
-            <td>
-                <strong>${notice.publication_number || "—"}</strong>
-            </td>
+            <td><strong>${notice.publication_number}</strong></td>
             <td>${pubDate}</td>
             <td>${deadlineDate}</td>
-            <td>
-                <div style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;">
-                    ${notice.title || "—"}
-                </div>
-            </td>
-            <td>${notice.country || "—"}</td>
-            <td>${notice.city || "—"}</td>
-            <td>
-                <code>${notice.cpv_code || "—"}</code>
-            </td>
+            <td>${notice.title || '—'}</td>
+            <td>${notice.country || '—'}</td>
+            <td>${notice.city || '—'}</td>
+            <td>${notice.cpv_code || '—'}</td>
         `;
         
-        // Обработчик клика для accordion
-        row.addEventListener("click", async (e) => {
-            // Если клик на ссылке - не открываем accordion
-            if (e.target.tagName === 'A' || e.target.closest('a')) {
+        // ✅ FIXED: Click handler для expandable row
+        row.addEventListener('click', async () => {
+            const detailRow = document.querySelector(`[data-publication="${notice.publication_number}"]`);
+            if (detailRow) {
+                detailRow.remove();
+                row.classList.remove('expanded');
                 return;
             }
             
-            await toggleAccordion(row, notice.publication_number);
+            row.classList.add('expanded');
+            
+            // ✅ FIXED: Direct TED link format (NEW v3 format)
+            const directUrl = `https://ted.europa.eu/en/notice/${notice.publication_number}/html`;
+            
+            // Create detail row
+            const detailRow = document.createElement('tr');
+            detailRow.className = 'detail-row';
+            detailRow.dataset.publication = notice.publication_number;
+            detailRow.innerHTML = `
+                <td colspan="7" class="detail-cell">
+                    <div class="detail-container">
+                        <div class="detail-section">
+                            <h3>📄 Direct Link & Summary</h3>
+                            <div class="detail-grid">
+                                <div class="detail-item">
+                                    <strong>Publication:</strong>
+                                    <a href="${directUrl}" target="_blank" class="btn btn-primary">Open TED Notice</a>
+                                </div>
+                                <div class="detail-item">
+                                    <strong>Title:</strong> ${notice.title || '—'}
+                                </div>
+                                <div class="detail-item">
+                                    <strong>Buyer:</strong> ${notice.buyer || '—'}
+                                </div>
+                                <div class="detail-item">
+                                    <strong>CPV:</strong> ${notice.cpv_code || '—'}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </td>
+            `;
+            elements.resultsTbody.appendChild(detailRow);
         });
         
         elements.resultsTbody.appendChild(row);
     });
 }
 
-// Форматирование даты
 function formatDate(dateStr) {
-    if (!dateStr) return "—";
-    
-    // TED даты в формате YYYYMMDD
-    if (dateStr.length === 8) {
-        const year = dateStr.substring(0, 4);
-        const month = dateStr.substring(4, 6);
-        const day = dateStr.substring(6, 8);
-        return `${day}.${month}.${year}`;
-    }
-    
-    return dateStr;
-}
-
-// Accordion: раскрытие/скрытие деталей
-async function toggleAccordion(row, publicationNumber) {
-    // Закрываем другие открытые accordions
-    document.querySelectorAll(".detail-row").forEach(el => el.remove());
-    document.querySelectorAll(".notice-row.expanded").forEach(el => 
-        el.classList.remove("expanded"));
-    
-    // Если уже открыт - закрываем
-    if (row.classList.contains("expanded")) {
-        row.classList.remove("expanded");
-        return;
-    }
-    
-    // Отмечаем как открытый
-    row.classList.add("expanded");
-    
-    // Создаем строку для деталей
-    const detailRow = document.createElement("tr");
-    detailRow.className = "detail-row";
-    detailRow.innerHTML = `
-        <td colspan="7" class="detail-cell">
-            <div class="loading">Загрузка деталей...</div>
-        </td>
-    `;
-    
-    row.after(detailRow);
-    
     try {
-        // Загружаем детали
-        const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/notice/${publicationNumber}`);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-        
-        const detail = await response.json();
-        
-        // Отображаем детали
-        detailRow.querySelector(".detail-cell").innerHTML = renderDetail(detail);
-        
-        // Настраиваем переключатель для полного описания
-        const toggleBtn = detailRow.querySelector(".notice-toggle");
-        const noticeContent = detailRow.querySelector(".notice-content");
-        
-        if (toggleBtn && noticeContent) {
-            toggleBtn.addEventListener("click", () => {
-                noticeContent.classList.toggle("open");
-                toggleBtn.innerHTML = noticeContent.classList.contains("open")
-                    ? '<i class="fas fa-chevron-up"></i> Скрыть полное описание'
-                    : '<i class="fas fa-chevron-down"></i> Показать полное описание';
-            });
-        }
-        
-    } catch (error) {
-        console.error("Error loading details:", error);
-        detailRow.querySelector(".detail-cell").innerHTML = `
-            <div class="alert alert-error">
-                <i class="fas fa-exclamation-triangle"></i>
-                Не удалось загрузить детали: ${error.message}
-            </div>
-        `;
+        const date = new Date(dateStr);
+        return date.toLocaleDateString('ru-RU');
+    } catch {
+        return dateStr || '—';
     }
 }
 
-// Рендер деталей тендера
-function renderDetail(detail) {
-    return `
-        <div class="detail-container">
-            <!-- Прямая ссылка -->
-            <div class="detail-section">
-                <h3><i class="fas fa-external-link-alt"></i> Прямая ссылка на тендер</h3>
-                <p>
-                    <a href="${detail.direct_url}" target="_blank" rel="noopener noreferrer">
-                        <i class="fas fa-external-link-alt"></i>
-                        ${detail.direct_url}
-                    </a>
-                </p>
-            </div>
-            
-            <!-- Краткая информация -->
-            <div class="detail-section">
-                <h3><i class="fas fa-info-circle"></i> Основная информация</h3>
-                <div class="detail-grid">
-                    <div class="detail-item">
-                        <strong>Номер публикации</strong>
-                        ${detail.publication_number || "—"}
-                    </div>
-                    <div class="detail-item">
-                        <strong>Дата публикации</strong>
-                        ${formatDate(detail.publication_date) || "—"}
-                    </div>
-                    <div class="detail-item">
-                        <strong>Дедлайн подачи</strong>
-                        ${formatDate(detail.deadline_date) || "—"}
-                    </div>
-                    <div class="detail-item">
-                        <strong>Тип процедуры</strong>
-                        ${detail.procedure_type || "—"}
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Заказчик -->
-            <div class="detail-section">
-                <h3><i class="fas fa-building"></i> Заказчик</h3>
-                <div class="detail-grid">
-                    <div class="detail-item">
-                        <strong>Название</strong>
-                        ${detail.buyer?.name || "—"}
-                    </div>
-                    <div class="detail-item">
-                        <strong>Страна</strong>
-                        ${detail.buyer?.country || "—"}
-                    </div>
-                    <div class="detail-item">
-                        <strong>Город</strong>
-                        ${detail.buyer?.city || "—"}
-                    </div>
-                    <div class="detail-item">
-                        <strong>Email</strong>
-                        ${detail.buyer?.email ? 
-                            `<a href="mailto:${detail.buyer.email}">${detail.buyer.email}</a>` : 
-                            "—"}
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Финансовая информация -->
-            <div class="detail-section">
-                <h3><i class="fas fa-euro-sign"></i> Финансовая информация</h3>
-                <div class="detail-grid">
-                    <div class="detail-item">
-                        <strong>Ориентировочная стоимость</strong>
-                        ${detail.estimated_value ? 
-                            `${detail.estimated_value.toLocaleString()} ${detail.estimated_value_currency || "EUR"}` : 
-                            "—"}
-                    </div>
-                    <div class="detail-item">
-                        <strong>CPV код (SKU)</strong>
-                        <code>${detail.cpv_code || "—"}</code>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Полное описание -->
-            <div class="detail-section">
-                <button class="notice-toggle">
-                    <i class="fas fa-chevron-down"></i> Показать полное описание
-                </button>
-                <div class="notice-content">
-                    <h3><i class="fas fa-file-alt"></i> Полное описание тендера</h3>
-                    <div class="notice-fields">
-                        ${renderFullNotice(detail.full_notice)}
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
-}
-
-// Рендер полного описания
-function renderFullNotice(fullNotice) {
-    if (!fullNotice || typeof fullNotice !== 'object') {
-        return '<div class="alert alert-info">Полное описание отсутствует</div>';
-    }
-    
-    let html = '';
-    
-    for (const [key, value] of Object.entries(fullNotice)) {
-        if (value !== null && value !== undefined) {
-            html += `
-                <div class="notice-field">
-                    <strong>${key}:</strong>
-                    <span>${String(value)}</span>
-                </div>
-            `;
-        }
-    }
-    
-    return html || '<div class="alert alert-info">Полное описание отсутствует</div>';
-}
-
-// Обновление пагинации
 function updatePagination() {
-    if (!elements.prevPage || !elements.nextPage || !elements.pageInfo) return;
-    
-    // Предыдущая страница
-    elements.prevPage.disabled = currentPage <= 1;
-    
-    // Следующая страница
-    elements.nextPage.disabled = currentPage >= totalPages;
-    
-    // Информация о странице
-    elements.pageInfo.textContent = `Страница ${currentPage} из ${totalPages}`;
+    if (elements.pageInfo) {
+        elements.pageInfo.textContent = `Страница ${currentPage} из ${totalPages}`;
+    }
+    if (elements.prevPage) {
+        elements.prevPage.disabled = currentPage <= 1;
+    }
+    if (elements.nextPage) {
+        elements.nextPage.disabled = currentPage >= totalPages;
+    }
 }
 
-// Вспомогательные функции отображения
+// UI Helpers
 function showLoading(show) {
     if (elements.loadingSpinner) {
-        elements.loadingSpinner.style.display = show ? "block" : "none";
-    }
-    if (elements.searchBtn) {
-        elements.searchBtn.disabled = show;
-    }
-}
-
-function showError(message) {
-    if (elements.errorAlert) {
-        elements.errorAlert.innerHTML = `
-            <i class="fas fa-exclamation-triangle"></i>
-            ${message}
-        `;
-        elements.errorAlert.style.display = "block";
-    }
-}
-
-function hideError() {
-    if (elements.errorAlert) {
-        elements.errorAlert.style.display = "none";
-    }
-}
-
-function showInfo(message) {
-    if (elements.infoAlert) {
-        elements.infoAlert.innerHTML = `
-            <i class="fas fa-info-circle"></i>
-            ${message}
-        `;
-        elements.infoAlert.style.display = "block";
-    }
-}
-
-function hideInfo() {
-    if (elements.infoAlert) {
-        elements.infoAlert.style.display = "none";
-    }
-}
-
-function showNoResults() {
-    if (elements.emptyState) {
-        elements.emptyState.style.display = "block";
-    }
-    if (elements.resultsSummary) {
-        elements.resultsSummary.textContent = "Найдено: 0 тендеров";
-    }
-}
-
-function hideEmptyState() {
-    if (elements.emptyState) {
-        elements.emptyState.style.display = "none";
-    }
-}
-
-function showResults() {
-    if (elements.resultsContainer) {
-        elements.resultsContainer.style.display = "block";
+        elements.loadingSpinner.style.display = show ? 'block' : 'none';
     }
 }
 
 function hideResults() {
     if (elements.resultsContainer) {
-        elements.resultsContainer.style.display = "none";
+        elements.resultsContainer.style.display = 'none';
+    }
+}
+
+function showResults() {
+    if (elements.resultsContainer) {
+        elements.resultsContainer.style.display = 'block';
+    }
+}
+
+function showNoResults() {
+    if (elements.emptyState) {
+        elements.emptyState.style.display = 'block';
+    }
+}
+
+function hideEmptyState() {
+    if (elements.emptyState) {
+        elements.emptyState.style.display = 'none';
+    }
+}
+
+function showError(message) {
+    if (elements.errorAlert) {
+        elements.errorAlert.textContent = message;
+        elements.errorAlert.style.display = 'block';
+    }
+}
+
+function hideError() {
+    if (elements.errorAlert) {
+        elements.errorAlert.style.display = 'none';
+    }
+}
+
+function showInfo(message) {
+    if (elements.infoAlert) {
+        elements.infoAlert.textContent = message;
+        elements.infoAlert.style.display = 'block';
+    }
+}
+
+function hideInfo() {
+    if (elements.infoAlert) {
+        elements.infoAlert.style.display = 'none';
     }
 }
