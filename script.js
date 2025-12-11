@@ -1,4 +1,4 @@
-/* TED Scraper Frontend – версия с правильными полями */
+/* TED Scraper Frontend – версия с правильным порядком колонок */
 
 const CONFIG = {
     BACKEND_BASE_URL: window.location.origin,
@@ -181,8 +181,8 @@ function displayResults(data) {
 
         const pubNum = notice.publication_number || 'N/A';
         const pubDate = notice.publication_date || '-';
-        const deadline = notice.deadline_date || '-';
         const title = notice.title || 'Нет заголовка';
+        const deadline = notice.deadline_date || '-';
 
         let locationParts = [];
         if (notice.country) locationParts.push(notice.country);
@@ -192,12 +192,14 @@ function displayResults(data) {
         }
         const location = locationParts.join(' / ') || '-';
 
+        // ВАЖНО: порядок точно совпадает с заголовками в HTML
+        // Номер | Дата публикации | Описание | Дедлайн | Страна/город
         row.innerHTML = `
             <td class="col-pubnum">${pubNum}</td>
-            <td>${pubDate}</td>
-            <td>${deadline}</td>
+            <td class="col-date">${pubDate}</td>
             <td class="col-title">${title}</td>
-            <td>${location}</td>
+            <td class="col-deadline">${deadline}</td>
+            <td class="col-location">${location}</td>
         `;
         elements.resultsTbody.appendChild(row);
     });
