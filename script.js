@@ -186,4 +186,327 @@ function setupEventListeners() {
     if (elements.prevPage) {
         elements.prevPage.addEventListener("click", () => {
             if (currentPage > 1) {
-                current
+                currentPage--;
+                performSearch();
+            }
+        });
+    }
+
+    if (elements.nextPage) {
+        elements.nextPage.addEventListener("click", () => {
+            if (currentPage < totalPages) {
+                currentPage++;
+                performSearch();
+            }
+        });
+    }
+
+    document.querySelectorAll(".theme-btn").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+            const theme = e.target.dataset.theme;
+            document.documentElement.setAttribute("data-theme", theme);
+            document
+                .querySelectorAll(".theme-btn")
+                .forEach((b) => b.classList.remove("active"));
+            e.target.classList.add("active");
+        });
+    });
+}
+
+
+// Очистка формы
+function clearForm() {
+    if (elements.textInput) elements.textInput.value = "";
+    if (elements.cpvCode) elements.cpvCode.value = "";
+    if (elements.activeOnly) elements.activeOnly.checked = false;
+    if (elements.pageSize) elements.pageSize.value = "25";
+    
+    // Очистка выбранных стран
+    selectedCountries.clear();
+    updateSelectedCountriesDisplay();
+    
+    // Снятие галочек в выпадающем списке
+    document.querySelectorAll('#country-dropdown input[type="checkbox"]').forEach(checkbox => {
+        checkbox.checked = false;
+    });
+    
+    setDefaultDates();
+    currentPage = 1;
+    
+    // Скрываем результаты
+    hideResults();
+    showInfo("Форма очищена. Введите новые критерии поиска.");
+}
+
+// Проверка статуса бэкенда
+async function checkBackendStatus() {
+    console.log("🔍 CHECKING BACKEND...", CONFIG.BACKEND_BASE_URL + "/health");
+    try {
+        const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/health`, { 
+            timeout: 5000,
+            cache: 'no-cache'
+        });
+        console.log("✅ HEALTH RESPONSE:", response.status);
+        if (response.ok) {
+            setBackendStatus(true);
+        } else {
+            setBackendStatus(false);
+        }
+    } catch (error) {
+        console.error("❌ HEALTH ERROR:", error);
+        setBackendStatus(false);
+    }
+    setTimeout(checkBackendStatus, 20000);
+}
+
+function setBackendStatus(isOnline) {
+    if (elements.backendStatus) {
+        if (isOnline) {
+            elements.backendStatus.textContent = "Online";
+            elements.backendStatus.className = "status-badge online";
+        } else {
+            elements.backendStatus.textContent = "Offline";
+            elements.backendStatus.className = "status-badge offline";
+        }
+    }
+}
+
+// Формирование запроса
+function getSearchRequest() {
+    const text = elements.textInput?.value?.trim() || null;
+    const publicationDateFrom = elements.dateFrom?.value || null;
+    const publicationDateTo = elements.dateTo?.value || null;
+    const cpvCode = elements.cpvCode?.value?.trim() || null;
+    const activeOnly = elements.activeOnly?.checked || false;
+    const limit = parseInt(elements.pageSize?.value || "25", 10);
+    
+    // Преобразуем Set стран в строку
+    const country = selectedCountries.size > 0 ? Array.from(selectedCountries).join(",") : null;
+    
+    return {
+        filters: {
+            text,
+            publication_date_from: publicationDateFrom,
+            publication_date_to: publicationDateTo,
+            country,
+            cpv_code: cpvCode,
+            active_only: activeOnly
+        },
+        page: currentPage,
+        limit: limit
+    };
+}
+
+// Выполнение поиска
+// Выполнение поиска - С ДИАГНОСТИКОЙ
+async function performSearch() {
+    console.log("🔍 START SEARCH", currentPage);
+    try {
+        showLoading(true);
+        hideError();
+        hideInfo();
+        hideEmptyState();
+        hideResults();
+        
+        const request = getSearchRequest();
+        console.log("📤 SEARCH REQUEST:", request);
+        
+        const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/search`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            },
+            body: JSON.stringify(request),
+            cache: 'no-cache'
+        });
+        
+        console.log("📥 SEARCH RESPONSE:", response.status);
+        
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            console.error("❌ SEARCH ERROR:", error);
+            throw new Error(error.detail || `HTTP ${response.status}`);
+        }
+        
+        const data = await response.json();
+        console.log("✅ SEARCH DATA:", data);
+        
+        // ... остальной код без изменений
+        
+    } catch (error) {
+        console.error("💥 FULL ERROR:", error);
+        showError(`Ошибка поиска: ${error.message}`);
+    } finally {
+        showLoading(false);
+    }
+}
+
+
+// ✅ FIXED: Отображение результатов с правильными ссылками
+function displayResults(notices) {
+    if (!elements.resultsTbody) return;
+    
+    elements.resultsTbody.innerHTML = "";
+    
+    notices.forEach(notice => {
+        const row = document.createElement("tr");
+        row.className = "notice-row";
+        row.dataset.publicationNumber = notice.publication_number;
+        
+        // Форматирование дат
+        const pubDate = notice.publication_date ? formatDate(notice.publication_date) : "—";
+        const deadlineDate = notice.deadline_date ? formatDate(notice.deadline_date) : "—";
+        
+        row.innerHTML = `
+            <td><strong>${notice.publication_number}</strong></td>
+            <td>${pubDate}</td>
+            <td>${deadlineDate}</td>
+            <td>${notice.title || '—'}</td>
+            <td>${notice.country || '—'}</td>
+            <td>${notice.city || '—'}</td>
+            <td>${notice.cpv_code || '—'}</td>
+        `;
+        
+        // ✅ FIXED: Click handler для expandable row
+		row.addEventListener('click', async () => {
+			// сначала пробуем найти уже существующую строку деталей
+			let detailRow = document.querySelector(`[data-publication="${notice.publication_number}"]`);
+			if (detailRow) {
+				detailRow.remove();
+				row.classList.remove('expanded');
+				return;
+			}
+
+			row.classList.add('expanded');
+
+			const directUrl = `https://ted.europa.eu/en/notice/${notice.publication_number}/html`;
+
+			// создаём новую строку деталей
+			detailRow = document.createElement('tr');  // ← здесь уже let, без второго const
+			detailRow.className = 'detail-row';
+			detailRow.dataset.publication = notice.publication_number;
+			detailRow.innerHTML = `
+				<td colspan="7" class="detail-cell">
+					<div class="detail-container">
+						<div class="detail-section">
+							<h3>📄 Direct Link & Summary</h3>
+							<div class="detail-grid">
+								<div class="detail-item">
+									<strong>Publication:</strong>
+									<a href="${directUrl}" target="_blank" class="btn btn-primary">Open TED Notice</a>
+								</div>
+								<div class="detail-item">
+									<strong>Title:</strong> ${notice.title || '—'}
+								</div>
+								<div class="detail-item">
+									<strong>Buyer:</strong> ${notice.buyer || '—'}
+								</div>
+								<div class="detail-item">
+									<strong>CPV:</strong> ${notice.cpv_code || '—'}
+								</div>
+							</div>
+						</div>
+					</div>
+				</td>
+			`;
+			elements.resultsTbody.appendChild(detailRow);
+		});
+        
+        elements.resultsTbody.appendChild(row);
+    });
+}
+
+function formatDate(dateStr) {
+    try {
+        const date = new Date(dateStr);
+        return date.toLocaleDateString('ru-RU');
+    } catch {
+        return dateStr || '—';
+    }
+}
+
+function updatePagination() {
+    if (elements.pageInfo) {
+        elements.pageInfo.textContent = `Страница ${currentPage} из ${totalPages}`;
+    }
+    if (elements.prevPage) {
+        elements.prevPage.disabled = currentPage <= 1;
+    }
+    if (elements.nextPage) {
+        elements.nextPage.disabled = currentPage >= totalPages;
+    }
+}
+
+// UI Helpers
+function showLoading(show) {
+    if (elements.loadingSpinner) {
+        elements.loadingSpinner.style.display = show ? 'block' : 'none';
+    }
+}
+
+function hideResults() {
+    if (elements.resultsContainer) {
+        elements.resultsContainer.style.display = 'none';
+    }
+}
+
+function showResults() {
+    if (elements.resultsContainer) {
+        elements.resultsContainer.style.display = 'block';
+    }
+}
+
+function showNoResults() {
+    if (elements.emptyState) {
+        elements.emptyState.style.display = 'block';
+    }
+}
+
+function hideEmptyState() {
+    if (elements.emptyState) {
+        elements.emptyState.style.display = 'none';
+    }
+}
+
+function showError(message) {
+    if (elements.errorAlert) {
+        elements.errorAlert.textContent = message;
+        elements.errorAlert.style.display = 'block';
+    }
+}
+
+function hideError() {
+    if (elements.errorAlert) {
+        elements.errorAlert.style.display = 'none';
+    }
+}
+
+function showInfo(message) {
+    if (elements.infoAlert) {
+        elements.infoAlert.textContent = message;
+        elements.infoAlert.style.display = 'block';
+    }
+}
+
+function hideInfo() {
+    if (elements.infoAlert) {
+        elements.infoAlert.style.display = 'none';
+    }
+}
+
+// 🔥 ТЕСТОВЫЙ КНОПКА для DevTools
+window.testBackend = async () => {
+    console.log("🧪 TESTING...");
+    try {
+        const health = await fetch('/health');
+        console.log('HEALTH:', await health.json());
+        
+        const countries = await fetch('/countries');
+        console.log('COUNTRIES:', await countries.json());
+        
+        console.log('✅ Backend работает!');
+    } catch(e) {
+        console.error('❌ Backend сломан:', e);
+    }
+};
