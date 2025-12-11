@@ -1,5 +1,5 @@
 """
-TED Scraper Backend - EMERGENCY FIX VERSION
+TED Scraper Backend – минимально рабочая версия для TED API v3
 """
 
 from fastapi import FastAPI, HTTPException
@@ -26,34 +26,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ✅ IMMEDIATE FIX: Health endpoint FIRST
-@app.get("/health")
-async def health():
-    return {"status": "ok", "api_key": "not_required"}
-
-# ✅ IMMEDIATE FIX: Countries endpoint SECOND
-@app.get("/countries")
-async def get_countries():
-    return [
-        {"code": "DEU", "name": "Germany"}, 
-        {"code": "FRA", "name": "France"},
-        {"code": "ITA", "name": "Italy"},
-        {"code": "ESP", "name": "Spain"},
-        {"code": "POL", "name": "Poland"}
-    ]
-
-@app.get("/")
-async def read_root():
-    return FileResponse("index.html")
-
-# TED API (working version)
 TED_API_URL = "https://api.ted.europa.eu/v3/notices/search"
+API_KEY = os.getenv("TED_API_KEY")
+
+# максимально консервативный набор полей, которые точно существуют в v3 Search API
+SEARCH_FIELDS = [
+    "publication-number",
+    "publication-date",
+    "notice-title",
+    "buyer-name",
+    "buyer-country",
+    "deadline-date",
+    "city",
+]
+
+# ---------- Модели ----------
 
 class Filters(BaseModel):
     text: Optional[str] = None
-    publication_date_from: Optional[str] = None
-    publication_date_to: Optional[str] = None
-    country: Optional[str] = None
+    publication_date_from: Optional[str] = None  # YYYY-MM-DD
+    publication_date_to: Optional[str] = None    # YYYY-MM-DD
+    country: Optional[str] = None                # "DEU, FRA"
     cpv_code: Optional[str] = None
     active_only: bool = False
 
@@ -70,111 +63,160 @@ class Notice(BaseModel):
     buyer: Optional[str] = None
     country: Optional[str] = None
     city: Optional[str] = None
-    cpv_code: Optional[str] = None
+    cpv_code: Optional[str] = None  # пока заполняем через текстовый поиск/пусто
 
 class SearchResponse(BaseModel):
     total: int
     notices: List[Notice]
 
+# ---------- Служебные эндпоинты ----------
+
+@app.get("/health")
+async def health():
+    return {
+        "status": "ok",
+        "api_key": "set" if API_KEY else "missing",
+    }
+
+@app.get("/countries")
+async def get_countries():
+    return [
+        {"code": "AUT", "name": "Austria (Österreich)"},
+        {"code": "BEL", "name": "Belgium (België/Belgique)"},
+        {"code": "BGR", "name": "Bulgaria (България)"},
+        {"code": "HRV", "name": "Croatia (Hrvatska)"},
+        {"code": "CYP", "name": "Cyprus (Κύπρος)"},
+        {"code": "CZE", "name": "Czech Republic (Česko)"},
+        {"code": "DNK", "name": "Denmark (Danmark)"},
+        {"code": "DEU", "name": "Germany (Deutschland)"},
+        {"code": "EST", "name": "Estonia (Eesti)"},
+        {"code": "GRC", "name": "Greece (Ελλάδα)"},
+        {"code": "ESP", "name": "Spain (España)"},
+        {"code": "FRA", "name": "France"},
+        {"code": "IRL", "name": "Ireland (Éire)"},
+        {"code": "ITA", "name": "Italy (Italia)"},
+        {"code": "LVA", "name": "Latvia (Latvija)"},
+        {"code": "LTU", "name": "Lithuania (Lietuva)"},
+        {"code": "LUX", "name": "Luxembourg (Lëtzebuerg)"},
+        {"code": "MLT", "name": "Malta"},
+        {"code": "NLD", "name": "Netherlands (Nederland)"},
+        {"code": "POL", "name": "Poland (Polska)"},
+        {"code": "PRT", "name": "Portugal"},
+        {"code": "ROU", "name": "Romania (România)"},
+        {"code": "SVK", "name": "Slovakia (Slovensko)"},
+        {"code": "SVN", "name": "Slovenia (Slovenija)"},
+        {"code": "FIN", "name": "Finland (Suomi)"},
+        {"code": "SWE", "name": "Sweden (Sverige)"},
+        {"code": "GBR", "name": "United Kingdom"},
+    ]
+
+@app.get("/")
+async def root():
+    return FileResponse("index.html")
+
+# ---------- Построение запроса к TED ----------
+
 def build_ted_query(filters: Filters) -> str:
-    query_parts = []
-    
+    parts = []
+
     if filters.text:
-        query_parts.append(f'(notice-title ~ "{filters.text}")')
-    
+        parts.append(f'(notice-title ~ "{filters.text}")')
+
     if filters.country:
-        countries = [c.strip().upper() for c in filters.country.split(",")]
-        country_query = " OR ".join([f'(buyer-country = "{c}")' for c in countries])
-        query_parts.append(f"({country_query})")
-    
+        codes = [c.strip().upper() for c in filters.country.split(",") if c.strip()]
+        if codes:
+            country_expr = " OR ".join([f'(buyer-country = "{c}")' for c in codes])
+            parts.append(f"({country_expr})")
+
+    # CPV пока ищем грубо по тексту в заголовке – корректное поле потом подберём отдельно
     if filters.cpv_code:
-        query_parts.append(f'(classification-cpv = "{filters.cpv_code}")')
-    
+        parts.append(f'(notice-title ~ "{filters.cpv_code}")')
+
     if filters.publication_date_from:
-        from_date = filters.publication_date_from.replace("-", "")
-        query_parts.append(f"(publication-date >= {from_date})")
-    
+        d = filters.publication_date_from.replace("-", "")
+        parts.append(f"(publication-date >= {d})")
+
     if filters.publication_date_to:
-        to_date = filters.publication_date_to.replace("-", "")
-        query_parts.append(f"(publication-date <= {to_date})")
-    
+        d = filters.publication_date_to.replace("-", "")
+        parts.append(f"(publication-date <= {d})")
+
     if filters.active_only:
         today = datetime.now().strftime("%Y%m%d")
-        query_parts.append(f"(deadline-date >= {today})")
-    
-    if not query_parts:
-        default_date = (datetime.now() - timedelta(days=30)).strftime("%Y%m%d")
-        query_parts.append(f"(publication-date >= {default_date})")
-    
-    return " AND ".join(query_parts)
+        parts.append(f"(deadline-date >= {today})")
 
-@app.post("/search")
-async def search_notices(request: SearchRequest):
+    if not parts:
+        default_date = (datetime.now() - timedelta(days=30)).strftime("%Y%m%d")
+        parts.append(f"(publication-date >= {default_date})")
+
+    query = " AND ".join(parts)
+    return query
+
+# ---------- Основной поиск ----------
+
+@app.post("/search", response_model=SearchResponse)
+async def search_notices(req: SearchRequest):
     try:
-        query = build_ted_query(request.filters) if request.filters else "(publication-date >= 20250101)"
+        query = build_ted_query(req.filters) if req.filters else "(publication-date >= 20240101)"
         logger.info(f"TED Query: {query}")
-        
+
         payload = {
             "query": query,
-            "page": max(1, request.page),
-            "limit": min(50, max(1, request.limit)),
+            "page": max(1, req.page),
+            "limit": min(100, max(1, req.limit)),
             "scope": "ALL",
-            "fields": ["publication-number", "publication-date", "deadline-date", "notice-title", "buyer-name", "buyer-country", "city", "classification-cpv"]
+            "fields": SEARCH_FIELDS,
         }
-        
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(TED_API_URL, json=payload)
-        
-        if response.status_code != 200:
-            logger.error(f"TED API error {response.status_code}: {response.text[:200]}")
-            # ✅ FALLBACK: Return mock data if TED API fails
-            return SearchResponse(total=3, notices=[
-                Notice(
-                    publication_number="2025/S 001-000123",
-                    publication_date="2025-12-01",
-                    deadline_date="2026-01-15",
-                    title="Sample IT Services Tender",
-                    buyer="Sample Ministry",
-                    country="DEU",
-                    city="Berlin",
-                    cpv_code="72200000"
-                )
-            ])
-        
-        data = response.json()
-        total = data.get("totalNoticeCount", 0)
-        notices = []
-        
-        for item in data.get("notices", [])[:request.limit]:
-            notices.append(Notice(
-                publication_number=item.get("publication-number", "N/A"),
-                publication_date=item.get("publication-date"),
-                deadline_date=item.get("deadline-date"),
-                title=item.get("notice-title", "No title"),
-                buyer=item.get("buyer-name"),
-                country=item.get("buyer-country"),
-                city=item.get("city"),
-                cpv_code=item.get("classification-cpv")
-            ))
-        
-        logger.info(f"Returned {len(notices)} notices out of {total}")
-        return SearchResponse(total=total, notices=notices)
-        
-    except Exception as e:
-        logger.error(f"Search error: {e}")
-        # ✅ FALLBACK: Always return data
-        return SearchResponse(total=1, notices=[
-            Notice(
-                publication_number="FALLBACK-001",
-                title="TED API temporarily unavailable - using demo data",
-                publication_date=datetime.now().strftime("%Y-%m-%d")
-            )
-        ])
+        if API_KEY:
+            payload["apiKey"] = API_KEY
 
-# Serve static files
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(TED_API_URL, json=payload)
+
+        if resp.status_code != 200:
+            text = resp.text[:500]
+            logger.error(f"TED API error {resp.status_code}: {text}")
+            # Отдаём понятную ошибку на фронт
+            raise HTTPException(
+                status_code=resp.status_code,
+                detail=f"TED API error {resp.status_code}: {text}",
+            )
+
+        data = resp.json()
+        total = data.get("totalNoticeCount", 0)
+        notices_out: List[Notice] = []
+
+        for item in data.get("notices", []):
+            notices_out.append(
+                Notice(
+                    publication_number=item.get("publication-number", "N/A"),
+                    publication_date=item.get("publication-date"),
+                    deadline_date=item.get("deadline-date"),
+                    title=item.get("notice-title"),
+                    buyer=item.get("buyer-name"),
+                    country=item.get("buyer-country"),
+                    city=item.get("city"),
+                    cpv_code=None,  # заполним позже, когда определим точное поле
+                )
+            )
+
+        logger.info(f"Returned {len(notices_out)} notices out of {total}")
+        return SearchResponse(total=total, notices=notices_out)
+
+    except httpx.RequestError as e:
+        logger.error(f"Connection error: {e}")
+        raise HTTPException(status_code=502, detail=f"Connection error to TED API: {e}")
+    except HTTPException:
+        # уже оформлено выше
+        raise
+    except Exception as e:
+        logger.exception("Unexpected error in /search")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ---------- Статика ----------
+
 app.mount("/", StaticFiles(directory=".", html=True), name="static")
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", "8000"))
+    port = int(os.getenv("PORT", "8846"))
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
