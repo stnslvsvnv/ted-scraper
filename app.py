@@ -1,6 +1,5 @@
 """
-TED Scraper Backend – РАБОЧАЯ ВЕРСИЯ с мультиязычными полями
-Извлекает первый язык/значение из dict/list
+TED Scraper Backend – ПОЛНАЯ обработка мультиязычных/вложенных данных TED v3
 """
 
 from fastapi import FastAPI, HTTPException
@@ -8,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import List, Optional, Any, Dict
+from typing import List, Optional, Any
 import httpx
 import logging
 import os
@@ -43,18 +42,30 @@ SEARCH_FIELDS = [
 ]
 
 def extract_text(value: Any) -> Optional[str]:
-    """Извлекает текст из dict/list/nested структур TED API"""
+    """Полная обработка TED API структур: dict/list/nested → string"""
     if value is None:
         return None
+    
     if isinstance(value, str):
         return value
+    
     if isinstance(value, dict):
-        # Берем первый язык {'hun': 'text'} -> 'text'
-        return next(iter(value.values()), None)
-    if isinstance(value, list) and len(value) > 0:
-        # Берем первое значение ['DEU'] -> 'DEU'
-        return extract_text(value[0])
-    return str(value)[:100]  # fallback
+        # Мультиязычный текст: {'deu': 'text'} → 'text'
+        first_value = next(iter(value.values()), None)
+        return extract_text(first_value)
+    
+    if isinstance(value, list):
+        # Список: ['text'] → 'text' или первый элемент
+        if len(value) == 0:
+            return None
+        first_value = value[0]
+        return extract_text(first_value)
+    
+    if isinstance(value, (int, float)):
+        return str(value)
+    
+    # Fallback: обрезаем длинный текст
+    return str(value)[:200]
 
 class Filters(BaseModel):
     text: Optional[str] = None
@@ -179,23 +190,27 @@ async def search_notices(req: SearchRequest):
 
             data = resp.json()
             total = data.get("totalNoticeCount", 0)
-            notices_out: List[Notice] = []
-            for item in data.get("notices", []):
-                notices_out.append(
-                    Notice(
-                        publication_number=item.get("publication-number", "N/A"),
-                        publication_date=extract_text(item.get("publication-date")),
-                        deadline_date=extract_text(item.get("deadline-date-part")),
-                        title=extract_text(item.get("notice-title")),
-                        buyer=extract_text(item.get("buyer-name")),
-                        country=extract_text(item.get("buyer-country")),
-                        city=extract_text(item.get("organisation-city-buyer")),
-                        cpv_code=None,
-                    )
-                )
+            notices_out: List[dict] = []  # Создаем dict, потом конвертируем
             
-            logger.info(f"Returned {len(notices_out)} notices out of {total}")
-            return SearchResponse(total=total, notices=notices_out)
+            for item in data.get("notices", []):
+                notice_data = {
+                    "publication_number": extract_text(item.get("publication-number")) or "N/A",
+                    "publication_date": extract_text(item.get("publication-date")),
+                    "deadline_date": extract_text(item.get("deadline-date-part")),
+                    "title": extract_text(item.get("notice-title")),
+                    "buyer": extract_text(item.get("buyer-name")),
+                    "country": extract_text(item.get("buyer-country")),
+                    "city": extract_text(item.get("organisation-city-buyer")),
+                    "cpv_code": None,
+                }
+                logger.debug(f"Parsed notice: {notice_data}")  # DEBUG
+                notices_out.append(notice_data)
+            
+            # Создаем Pydantic объекты после парсинга
+            notices = [Notice(**notice) for notice in notices_out]
+            
+            logger.info(f"Returned {len(notices)} notices out of {total}")
+            return SearchResponse(total=total, notices=notices)
             
     except httpx.RequestError as e:
         logger.error(f"Connection error: {e}")
