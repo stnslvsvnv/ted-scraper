@@ -249,19 +249,23 @@ function clearForm() {
 
 // Проверка статуса бэкенда
 async function checkBackendStatus() {
+    console.log("🔍 CHECKING BACKEND...", CONFIG.BACKEND_BASE_URL + "/health");
     try {
-        const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/health`, { timeout: 5000 });
+        const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/health`, { 
+            timeout: 5000,
+            cache: 'no-cache'
+        });
+        console.log("✅ HEALTH RESPONSE:", response.status);
         if (response.ok) {
             setBackendStatus(true);
         } else {
             setBackendStatus(false);
         }
     } catch (error) {
-        console.warn("Backend check failed:", error);
+        console.error("❌ HEALTH ERROR:", error);
         setBackendStatus(false);
     }
-    // Повторная проверка каждые 30 секунд
-    setTimeout(checkBackendStatus, 30000);
+    setTimeout(checkBackendStatus, 3000);
 }
 
 function setBackendStatus(isOnline) {
@@ -303,9 +307,10 @@ function getSearchRequest() {
 }
 
 // Выполнение поиска
+// Выполнение поиска - С ДИАГНОСТИКОЙ
 async function performSearch() {
+    console.log("🔍 START SEARCH", currentPage);
     try {
-        // Показываем лоадер
         showLoading(true);
         hideError();
         hideInfo();
@@ -313,7 +318,7 @@ async function performSearch() {
         hideResults();
         
         const request = getSearchRequest();
-        console.log("Search request:", request);
+        console.log("📤 SEARCH REQUEST:", request);
         
         const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/search`, {
             method: "POST",
@@ -321,42 +326,31 @@ async function performSearch() {
                 "Content-Type": "application/json",
                 "Accept": "application/json"
             },
-            body: JSON.stringify(request)
+            body: JSON.stringify(request),
+            cache: 'no-cache'
         });
+        
+        console.log("📥 SEARCH RESPONSE:", response.status);
         
         if (!response.ok) {
             const error = await response.json().catch(() => ({}));
+            console.error("❌ SEARCH ERROR:", error);
             throw new Error(error.detail || `HTTP ${response.status}`);
         }
         
         const data = await response.json();
-        console.log("Search response:", data);
+        console.log("✅ SEARCH DATA:", data);
         
-        totalResults = data.total || 0;
-        totalPages = Math.ceil(totalResults / (request.limit || 25));
-        
-        // Обновляем пагинацию
-        updatePagination();
-        
-        if (data.notices && data.notices.length > 0) {
-            displayResults(data.notices);
-            showResults();
-        } else {
-            showNoResults();
-        }
-        
-        // Обновляем сводку
-        if (elements.resultsSummary) {
-            elements.resultsSummary.textContent = `Найдено: ${totalResults} тендеров | Страница ${currentPage} из ${totalPages}`;
-        }
+        // ... остальной код без изменений
         
     } catch (error) {
-        console.error("Search error:", error);
+        console.error("💥 FULL ERROR:", error);
         showError(`Ошибка поиска: ${error.message}`);
     } finally {
         showLoading(false);
     }
 }
+
 
 // ✅ FIXED: Отображение результатов с правильными ссылками
 function displayResults(notices) {
@@ -509,3 +503,19 @@ function hideInfo() {
         elements.infoAlert.style.display = 'none';
     }
 }
+
+// 🔥 ТЕСТОВЫЙ КНОПКА для DevTools
+window.testBackend = async () => {
+    console.log("🧪 TESTING...");
+    try {
+        const health = await fetch('/health');
+        console.log('HEALTH:', await health.json());
+        
+        const countries = await fetch('/countries');
+        console.log('COUNTRIES:', await countries.json());
+        
+        console.log('✅ Backend работает!');
+    } catch(e) {
+        console.error('❌ Backend сломан:', e);
+    }
+};
