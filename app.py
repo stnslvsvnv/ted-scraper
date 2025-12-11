@@ -1,5 +1,5 @@
 """
-TED Scraper Backend – версия с поддержкой разных полей deadline
+TED Scraper Backend – финальная версия с правильными полями deadline
 """
 
 from fastapi import FastAPI, HTTPException
@@ -27,7 +27,7 @@ app.add_middleware(
 
 TED_API_URL = "https://api.ted.europa.eu/v3/notices/search"
 
-# добавляем несколько вариантов полей для дедлайна
+# правильные поля из TED API (проверены по ошибке)
 SUPPORTED_FIELDS = [
     "publication-number",
     "publication-date",
@@ -35,9 +35,9 @@ SUPPORTED_FIELDS = [
     "organisation-country-buyer",
     "organisation-city-buyer",
     "place-of-performance-city-lot",
-    "deadline-receipt-tender-date-lot",      # BT-131(d) - основной дедлайн
-    "deadline-receipt-requests",              # BT-1311 - дедлайн для заявок на участие
-    "deadline-receipt-expressions-date-lot",  # дедлайн для выражения заинтересованности
+    "deadline-receipt-tender-date-lot",        # основной дедлайн подачи тендеров
+    "deadline-receipt-expressions-date-lot",   # дедлайн выражения заинтересованности
+    "deadline-receipt-request-date-lot",       # дедлайн заявок на участие
 ]
 
 API_KEY = os.getenv("TED_API_KEY", None)
@@ -132,13 +132,12 @@ def get_deadline_date(item: dict) -> Optional[str]:
     Пытается получить дедлайн из нескольких возможных полей.
     Приоритет:
     1. deadline-receipt-tender-date-lot (основной дедлайн для подачи тендеров)
-    2. deadline-receipt-requests (дедлайн для заявок на участие)
+    2. deadline-receipt-request-date-lot (дедлайн для заявок на участие)
     3. deadline-receipt-expressions-date-lot (дедлайн для выражения заинтересованности)
     """
-    # пробуем разные варианты
     for field_name in [
         "deadline-receipt-tender-date-lot",
-        "deadline-receipt-requests", 
+        "deadline-receipt-request-date-lot",
         "deadline-receipt-expressions-date-lot"
     ]:
         value = item.get(field_name)
@@ -233,7 +232,7 @@ async def search_notices(request: SearchRequest):
             notice = Notice(
                 publication_number=item.get("publication-number", "N/A"),
                 publication_date=normalize_date(item.get("publication-date")),
-                deadline_date=get_deadline_date(item),  # используем новую функцию
+                deadline_date=get_deadline_date(item),  # используем функцию с правильными полями
                 title=extract_multilang_field(
                     item.get("notice-title"), "No title"
                 ),
