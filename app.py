@@ -1,5 +1,5 @@
 """
-TED Scraper Backend - Key support + test fallback "buyer-country = FRA"
+TED Scraper Backend - search + notice details with multilang handling
 """
 
 from fastapi import FastAPI, HTTPException
@@ -26,8 +26,11 @@ app.add_middleware(
 )
 
 TED_API_URL = "https://api.ted.europa.eu/v3/notices/search"
+API_KEY = os.getenv("TED_API_KEY", None)
 
-SUPPORTED_FIELDS = [
+PREFERRED_LANGS = ["eng", "fra", "deu"]
+
+SEARCH_FIELDS = [
     "publication-number",
     "publication-date",
     "notice-title",
@@ -35,9 +38,20 @@ SUPPORTED_FIELDS = [
     "buyer-country",
 ]
 
-API_KEY = os.getenv("TED_API_KEY", None)
-
-PREFERRED_LANGS = ["eng", "fra", "deu"]
+DETAIL_FIELDS = [
+    "publication-number",
+    "publication-date",
+    "notice-title",
+    "buyer-name",
+    "buyer-country",
+    "place-of-performance-country-lot",
+    "place-of-performance-city-lot",
+    "deadline-receipt-tender-date-lot",
+    "deadline-receipt-tender-time-lot",
+    "contract-nature",
+    "description-lot",
+    "title-lot",
+]
 
 
 class Filters(BaseModel):
@@ -66,13 +80,18 @@ class SearchResponse(BaseModel):
     notices: List[Notice]
 
 
+class NoticeDetail(BaseModel):
+    publication_number: str
+    direct_url: str
+    summary: dict
+    full_notice: dict
+
+
 def extract_multilang_field(field_value: Any, default: str = "N/A") -> str:
-    """Извлекает значение из многоязычного поля TED"""
     if isinstance(field_value, str):
         return field_value
 
     if isinstance(field_value, dict):
-        # пробуем предпочтительные языки
         for lang in PREFERRED_LANGS:
             if lang in field_value:
                 val = field_value[lang]
@@ -80,7 +99,6 @@ def extract_multilang_field(field_value: Any, default: str = "N/A") -> str:
                     return val[0]
                 if isinstance(val, str):
                     return val
-        # берём первое попавшееся
         for val in field_value.values():
             if isinstance(val, list) and val:
                 return val[0]
@@ -97,6 +115,26 @@ def extract_multilang_field(field_value: Any, default: str = "N/A") -> str:
     return default
 
 
+def normalize_date(date_str: Optional[str]) -> Optional[str]:
+    if not date_str or not isinstance(date_str, str):
+        return None
+    return date_str[:10]
+
+
+def normalize_time(time_str: Optional[str]) -> Optional[str]:
+    if not time_str or not isinstance(time_str, str):
+        return None
+    return time_str.split()[0] if " " in time_str else time_str
+
+
+def get_historical_broad() -> str:
+    return "(publication-date >= 19930101)"
+
+
+def get_test_query() -> str:
+    return "buyer-country = FRA"
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "api_key": "set" if API_KEY else "missing (limited access)"}
@@ -107,14 +145,6 @@ async def read_root():
     if not os.path.exists("index.html"):
         raise HTTPException(status_code=404, detail="index.html not found")
     return FileResponse("index.html")
-
-
-def get_historical_broad() -> str:
-    return "(publication-date >= 19930101)"
-
-
-def get_test_query() -> str:
-    return "buyer-country = FRA"
 
 
 @app.post("/search")
@@ -156,78 +186,3 @@ async def search_notices(request: SearchRequest):
             and (not request.filters or not request.filters.country)
         ):
             expert_query = f"{get_historical_broad()} AND {expert_query}"
-
-        logger.info(
-            f"POST /search: query={expert_query}, page={request.page}, limit={request.limit}"
-        )
-
-        payload = {
-            "query": expert_query,
-            "page": max(1, request.page),
-            "limit": min(100, max(1, request.limit)),
-            "scope": "ALL",
-            "fields": SUPPORTED_FIELDS,
-        }
-
-        if API_KEY:
-            payload["apiKey"] = API_KEY
-
-        async with httpx.AsyncClient() as client:
-            response = await client.post(TED_API_URL, json=payload, timeout=120.0)
-
-        data = response.json()
-        total = data.get("totalNoticeCount", data.get("total", 0))
-        logger.info(f"Initial total: {total} lots")
-
-        if total == 0:
-            logger.info("Still 0; test fallback FRA")
-            payload["query"] = get_test_query()
-            payload["scope"] = "ALL"
-            async with httpx.AsyncClient() as client:
-                response = await client.post(TED_API_URL, json=payload, timeout=120.0)
-            data = response.json()
-            total = data.get("totalNoticeCount", data.get("total", 0))
-            logger.info(f"Test FRA total: {total} lots")
-
-        if response.status_code != 200:
-            error_detail = (
-                response.json().get("message", response.text[:200])
-                if response.content
-                else "No response"
-            )
-            logger.error(f"TED Error ({response.status_code}): {error_detail}")
-            raise HTTPException(
-                status_code=response.status_code,
-                detail=f"TED API error: {error_detail}",
-            )
-
-        notices: List[Notice] = []
-        for item in data.get("notices", data.get("results", [])):
-            notices.append(
-                Notice(
-                    publication_number=item.get("publication-number", "N/A"),
-                    publication_date=item.get("publication-date"),
-                    title=extract_multilang_field(item.get("notice-title"), "No title"),
-                    buyer=extract_multilang_field(item.get("buyer-name"), "Unknown buyer"),
-                    country=extract_multilang_field(item.get("buyer-country"), "Unknown"),
-                )
-            )
-
-        logger.info(f"Returned {len(notices)} lots out of {total}")
-        return SearchResponse(total=int(total), notices=notices)
-
-    except httpx.RequestError as e:
-        logger.error(f"TED Connection: {e}")
-        raise HTTPException(status_code=502, detail=f"Connection error: {str(e)}")
-    except Exception as e:
-        logger.error(f"Search error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-app.mount("/", StaticFiles(directory=".", html=True), name="static")
-
-if __name__ == "__main__":
-    import uvicorn
-
-    port = int(os.getenv("PORT", "8000"))
-    uvicorn.run(app, host="0.0.0.0", port=port)
