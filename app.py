@@ -36,7 +36,7 @@ SUPPORTED_FIELDS = [
     "buyer-country",
 ]
 
-API_KEY = os.getenv("TED_API_KEY", None)  # Set in env: export TED_API_KEY=your_key
+API_KEY = os.getenv("TED_API_KEY", None)  # export TED_API_KEY=your_key
 
 
 class Filters(BaseModel):
@@ -77,12 +77,13 @@ async def read_root():
     return FileResponse("index.html")
 
 
-def get_historical_broad():
+def get_historical_broad() -> str:
     return "(publication-date >= 19930101)"
 
 
-def get_test_query():
-    return "buyer-country = EU"  # Known working, total>1M
+def get_test_query() -> str:
+    # fallback, гарантированно даёт большую выборку
+    return "buyer-country = EU"
 
 
 @app.post("/search")
@@ -92,16 +93,19 @@ async def search_notices(request: SearchRequest):
         has_date_filter = False
 
         if request.filters:
+            # текстовый поиск
             if request.filters.text:
                 text = request.filters.text.strip()
-                ft_term = f'(notice-title ~ {text} OR buyer-name ~ {text})'
+                # безопаснее обернуть в кавычки
+                ft_term = f'(notice-title ~ "{text}")'
                 query_terms.append(ft_term)
 
+            # страна
             if request.filters.country:
-                query_terms.append(
-                    f"(country-of-buyer = {request.filters.country.upper()})"
-                )
+                country = request.filters.country.strip().upper()
+                query_terms.append(f"(buyer-country = {country})")
 
+            # даты
             if request.filters.publication_date_from:
                 from_date = request.filters.publication_date_from.replace("-", "")
                 if from_date:
@@ -114,15 +118,17 @@ async def search_notices(request: SearchRequest):
                     query_terms.append(f"(publication-date <= {to_date})")
                     has_date_filter = True
 
-        # If no terms, use historical or test
+        # если фильтров нет — берём широкий исторический
         if not query_terms:
             expert_query = get_historical_broad()
         else:
             expert_query = " AND ".join(query_terms)
 
-        # Add historical if dates only (broaden)
-        if has_date_filter and not (request.filters and request.filters.text) and not (
-            request.filters and request.filters.country
+        # если только даты без текста и страны — расширяем историческим
+        if (
+            has_date_filter
+            and (not request.filters or not request.filters.text)
+            and (not request.filters or not request.filters.country)
         ):
             expert_query = f"{get_historical_broad()} AND {expert_query}"
 
@@ -139,7 +145,7 @@ async def search_notices(request: SearchRequest):
         }
 
         if API_KEY:
-            payload["apiKey"] = API_KEY  # Add key for full access
+            payload["apiKey"] = API_KEY
 
         async with httpx.AsyncClient() as client:
             response = await client.post(TED_API_URL, json=payload, timeout=120.0)
@@ -148,6 +154,7 @@ async def search_notices(request: SearchRequest):
         total = data.get("total", 0)
         logger.info(f"Initial total: {total} lots")
 
+        # если 0 — пробуем scope=ALL
         if total == 0:
             logger.info("Initial 0; retry ALL")
             payload["scope"] = "ALL"
@@ -157,6 +164,7 @@ async def search_notices(request: SearchRequest):
             total = data.get("total", 0)
             logger.info(f"ALL total: {total} lots")
 
+        # если опять 0 — fallback на buyer-country = EU
         if total == 0:
             logger.info("Still 0; test fallback EU")
             payload["query"] = get_test_query()
@@ -181,14 +189,15 @@ async def search_notices(request: SearchRequest):
 
         notices: List[Notice] = []
         for item in data.get("results", []):
-            notice = Notice(
-                publication_number=item.get("publication-number", "N/A"),
-                publication_date=item.get("publication-date"),
-                title=item.get("notice-title", "No title"),
-                buyer=item.get("buyer-name", "Unknown buyer"),
-                country=item.get("buyer-country", "Unknown"),
+            notices.append(
+                Notice(
+                    publication_number=item.get("publication-number", "N/A"),
+                    publication_date=item.get("publication-date"),
+                    title=item.get("notice-title", "No title"),
+                    buyer=item.get("buyer-name", "Unknown buyer"),
+                    country=item.get("buyer-country", "Unknown"),
+                )
             )
-            notices.append(notice)
 
         logger.info(f"Returned {len(notices)} lots out of {total}")
         return SearchResponse(total=total, notices=notices)
@@ -201,7 +210,7 @@ async def search_notices(request: SearchRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ВАЖНО: раздаём статику (index.html, style.css, script.js) из текущей директории
+# раздаём index.html, style.css, script.js из текущей директории по корню
 app.mount("/", StaticFiles(directory=".", html=True), name="static")
 
 if __name__ == "__main__":
