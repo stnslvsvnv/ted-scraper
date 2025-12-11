@@ -1,6 +1,6 @@
 """
-TED Scraper Backend – РАБОЧАЯ ВЕРСИЯ по Swagger документации
-fields = ТОЛЬКО supported значения из paste.txt
+TED Scraper Backend – РАБОЧАЯ ВЕРСИЯ с мультиязычными полями
+Извлекает первый язык/значение из dict/list
 """
 
 from fastapi import FastAPI, HTTPException
@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Any, Dict
 import httpx
 import logging
 import os
@@ -30,18 +30,31 @@ app.add_middleware(
 TED_API_URL = "https://api.ted.europa.eu/v3/notices/search"
 API_KEY = os.getenv("TED_API_KEY")
 
-# ТОЧНЫЙ список supported fields из Swagger (paste.txt)
 SEARCH_FIELDS = [
     "publication-number",
-    "publication-date",
+    "publication-date", 
     "notice-title",
     "buyer-name",
     "buyer-country",
-    "deadline-date-part",  # для дедлайнов
-    "organisation-city-buyer",  # город покупателя
-    "sme-part",  # безопасное дополнительное поле
-    "touchpoint-gateway-ted-esen"  # безопасное дополнительное поле
+    "deadline-date-part",
+    "organisation-city-buyer",
+    "sme-part",
+    "touchpoint-gateway-ted-esen"
 ]
+
+def extract_text(value: Any) -> Optional[str]:
+    """Извлекает текст из dict/list/nested структур TED API"""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        # Берем первый язык {'hun': 'text'} -> 'text'
+        return next(iter(value.values()), None)
+    if isinstance(value, list) and len(value) > 0:
+        # Берем первое значение ['DEU'] -> 'DEU'
+        return extract_text(value[0])
+    return str(value)[:100]  # fallback
 
 class Filters(BaseModel):
     text: Optional[str] = None
@@ -117,7 +130,7 @@ def build_ted_query(filters: Filters) -> str:
     if filters.country:
         codes = [c.strip().upper() for c in filters.country.split(",") if c.strip()]
         if codes:
-            country_expr = " OR ".join([f'(buyer-country = "{c}")' for c in codes])
+            country_expr = " OR ".join([f'buyer-country = "{c}"' for c in codes])
             parts.append(f"({country_expr})")
     if filters.cpv_code:
         parts.append(f'(notice-title ~ "{filters.cpv_code}")')
@@ -146,7 +159,7 @@ async def search_notices(req: SearchRequest):
             "page": max(1, req.page),
             "limit": min(100, max(1, req.limit)),
             "scope": "ALL",
-            "fields": SEARCH_FIELDS,  # ТОЛЬКО supported из Swagger
+            "fields": SEARCH_FIELDS,
             "checkQuerySyntax": False,
             "paginationMode": "PAGE_NUMBER",
             "onlyLatestVersions": False
@@ -171,12 +184,12 @@ async def search_notices(req: SearchRequest):
                 notices_out.append(
                     Notice(
                         publication_number=item.get("publication-number", "N/A"),
-                        publication_date=item.get("publication-date"),
-                        deadline_date=item.get("deadline-date-part"),
-                        title=item.get("notice-title"),
-                        buyer=item.get("buyer-name"),
-                        country=item.get("buyer-country"),
-                        city=item.get("organisation-city-buyer"),
+                        publication_date=extract_text(item.get("publication-date")),
+                        deadline_date=extract_text(item.get("deadline-date-part")),
+                        title=extract_text(item.get("notice-title")),
+                        buyer=extract_text(item.get("buyer-name")),
+                        country=extract_text(item.get("buyer-country")),
+                        city=extract_text(item.get("organisation-city-buyer")),
                         cpv_code=None,
                     )
                 )
