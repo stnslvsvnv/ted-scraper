@@ -378,49 +378,49 @@ function displayResults(notices) {
         `;
         
         // ✅ FIXED: Click handler для expandable row
-        row.addEventListener('click', async () => {
-            const detailRow = document.querySelector(`[data-publication="${notice.publication_number}"]`);
-            if (detailRow) {
-                detailRow.remove();
-                row.classList.remove('expanded');
-                return;
-            }
-            
-            row.classList.add('expanded');
-            
-            // ✅ FIXED: Direct TED link format (NEW v3 format)
-            const directUrl = `https://ted.europa.eu/en/notice/${notice.publication_number}/html`;
-            
-            // Create detail row
-            const detailRow = document.createElement('tr');
-            detailRow.className = 'detail-row';
-            detailRow.dataset.publication = notice.publication_number;
-            detailRow.innerHTML = `
-                <td colspan="7" class="detail-cell">
-                    <div class="detail-container">
-                        <div class="detail-section">
-                            <h3>📄 Direct Link & Summary</h3>
-                            <div class="detail-grid">
-                                <div class="detail-item">
-                                    <strong>Publication:</strong>
-                                    <a href="${directUrl}" target="_blank" class="btn btn-primary">Open TED Notice</a>
-                                </div>
-                                <div class="detail-item">
-                                    <strong>Title:</strong> ${notice.title || '—'}
-                                </div>
-                                <div class="detail-item">
-                                    <strong>Buyer:</strong> ${notice.buyer || '—'}
-                                </div>
-                                <div class="detail-item">
-                                    <strong>CPV:</strong> ${notice.cpv_code || '—'}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </td>
-            `;
-            elements.resultsTbody.appendChild(detailRow);
-        });
+		row.addEventListener('click', async () => {
+			// сначала пробуем найти уже существующую строку деталей
+			let detailRow = document.querySelector(`[data-publication="${notice.publication_number}"]`);
+			if (detailRow) {
+				detailRow.remove();
+				row.classList.remove('expanded');
+				return;
+			}
+
+			row.classList.add('expanded');
+
+			const directUrl = `https://ted.europa.eu/en/notice/${notice.publication_number}/html`;
+
+			// создаём новую строку деталей
+			detailRow = document.createElement('tr');  // ← здесь уже let, без второго const
+			detailRow.className = 'detail-row';
+			detailRow.dataset.publication = notice.publication_number;
+			detailRow.innerHTML = `
+				<td colspan="7" class="detail-cell">
+					<div class="detail-container">
+						<div class="detail-section">
+							<h3>📄 Direct Link & Summary</h3>
+							<div class="detail-grid">
+								<div class="detail-item">
+									<strong>Publication:</strong>
+									<a href="${directUrl}" target="_blank" class="btn btn-primary">Open TED Notice</a>
+								</div>
+								<div class="detail-item">
+									<strong>Title:</strong> ${notice.title || '—'}
+								</div>
+								<div class="detail-item">
+									<strong>Buyer:</strong> ${notice.buyer || '—'}
+								</div>
+								<div class="detail-item">
+									<strong>CPV:</strong> ${notice.cpv_code || '—'}
+								</div>
+							</div>
+						</div>
+					</div>
+				</td>
+			`;
+			elements.resultsTbody.appendChild(detailRow);
+		});
         
         elements.resultsTbody.appendChild(row);
     });
