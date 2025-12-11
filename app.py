@@ -1,5 +1,6 @@
 """
-TED Scraper Backend – минимально рабочая версия для TED API v3
+TED Scraper Backend – исправленная версия для TED API v3
+Убраны невалидные поля fields, запрос работает стабильно
 """
 
 from fastapi import FastAPI, HTTPException
@@ -29,24 +30,12 @@ app.add_middleware(
 TED_API_URL = "https://api.ted.europa.eu/v3/notices/search"
 API_KEY = os.getenv("TED_API_KEY")
 
-# максимально консервативный набор полей, которые точно существуют в v3 Search API
-SEARCH_FIELDS = [
-    "publication-number",
-    "publication-date",
-    "notice-title",
-    "buyer-name",
-    "buyer-country",
-    "deadline-date",
-    "city",
-]
-
-# ---------- Модели ----------
-
+# Модели
 class Filters(BaseModel):
     text: Optional[str] = None
     publication_date_from: Optional[str] = None  # YYYY-MM-DD
-    publication_date_to: Optional[str] = None    # YYYY-MM-DD
-    country: Optional[str] = None                # "DEU, FRA"
+    publication_date_to: Optional[str] = None  # YYYY-MM-DD
+    country: Optional[str] = None  # "DEU, FRA"
     cpv_code: Optional[str] = None
     active_only: bool = False
 
@@ -63,14 +52,13 @@ class Notice(BaseModel):
     buyer: Optional[str] = None
     country: Optional[str] = None
     city: Optional[str] = None
-    cpv_code: Optional[str] = None  # пока заполняем через текстовый поиск/пусто
+    cpv_code: Optional[str] = None
 
 class SearchResponse(BaseModel):
     total: int
     notices: List[Notice]
 
-# ---------- Служебные эндпоинты ----------
-
+# Служебные эндпоинты
 @app.get("/health")
 async def health():
     return {
@@ -114,106 +102,90 @@ async def get_countries():
 async def root():
     return FileResponse("index.html")
 
-# ---------- Построение запроса к TED ----------
-
+# Построение запроса к TED
 def build_ted_query(filters: Filters) -> str:
     parts = []
-
     if filters.text:
         parts.append(f'(notice-title ~ "{filters.text}")')
-
     if filters.country:
         codes = [c.strip().upper() for c in filters.country.split(",") if c.strip()]
         if codes:
             country_expr = " OR ".join([f'(buyer-country = "{c}")' for c in codes])
             parts.append(f"({country_expr})")
-
-    # CPV пока ищем грубо по тексту в заголовке – корректное поле потом подберём отдельно
     if filters.cpv_code:
         parts.append(f'(notice-title ~ "{filters.cpv_code}")')
-
     if filters.publication_date_from:
         d = filters.publication_date_from.replace("-", "")
         parts.append(f"(publication-date >= {d})")
-
     if filters.publication_date_to:
         d = filters.publication_date_to.replace("-", "")
         parts.append(f"(publication-date <= {d})")
-
     if filters.active_only:
         today = datetime.now().strftime("%Y%m%d")
         parts.append(f"(deadline-date >= {today})")
-
     if not parts:
         default_date = (datetime.now() - timedelta(days=30)).strftime("%Y%m%d")
         parts.append(f"(publication-date >= {default_date})")
-
     query = " AND ".join(parts)
     return query
 
-# ---------- Основной поиск ----------
-
+# Основной поиск
 @app.post("/search", response_model=SearchResponse)
 async def search_notices(req: SearchRequest):
     try:
         query = build_ted_query(req.filters) if req.filters else "(publication-date >= 20240101)"
         logger.info(f"TED Query: {query}")
-
+        
         payload = {
             "query": query,
             "page": max(1, req.page),
             "limit": min(100, max(1, req.limit)),
             "scope": "ALL",
-            "fields": SEARCH_FIELDS,
+            # УБРАЛИ fields - это вызывало 400 ошибку!
         }
         if API_KEY:
             payload["apiKey"] = API_KEY
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(TED_API_URL, json=payload)
-
-        if resp.status_code != 200:
-            text = resp.text[:500]
-            logger.error(f"TED API error {resp.status_code}: {text}")
-            # Отдаём понятную ошибку на фронт
-            raise HTTPException(
-                status_code=resp.status_code,
-                detail=f"TED API error {resp.status_code}: {text}",
-            )
-
-        data = resp.json()
-        total = data.get("totalNoticeCount", 0)
-        notices_out: List[Notice] = []
-
-        for item in data.get("notices", []):
-            notices_out.append(
-                Notice(
-                    publication_number=item.get("publication-number", "N/A"),
-                    publication_date=item.get("publication-date"),
-                    deadline_date=item.get("deadline-date"),
-                    title=item.get("notice-title"),
-                    buyer=item.get("buyer-name"),
-                    country=item.get("buyer-country"),
-                    city=item.get("city"),
-                    cpv_code=None,  # заполним позже, когда определим точное поле
+            if resp.status_code != 200:
+                text = resp.text[:500]
+                logger.error(f"TED API error {resp.status_code}: {text}")
+                raise HTTPException(
+                    status_code=resp.status_code,
+                    detail=f"TED API error {resp.status_code}: {text}",
                 )
-            )
 
-        logger.info(f"Returned {len(notices_out)} notices out of {total}")
-        return SearchResponse(total=total, notices=notices_out)
-
+            data = resp.json()
+            total = data.get("totalNoticeCount", 0)
+            notices_out: List[Notice] = []
+            for item in data.get("notices", []):
+                notices_out.append(
+                    Notice(
+                        publication_number=item.get("publication-number", "N/A"),
+                        publication_date=item.get("publication-date"),
+                        deadline_date=item.get("deadline-date"),
+                        title=item.get("notice-title"),
+                        buyer=item.get("buyer-name"),
+                        country=item.get("buyer-country"),
+                        city=item.get("city"),
+                        cpv_code=None,  # заполним позже через отдельный эндпоинт
+                    )
+                )
+            
+            logger.info(f"Returned {len(notices_out)} notices out of {total}")
+            return SearchResponse(total=total, notices=notices_out)
+            
     except httpx.RequestError as e:
         logger.error(f"Connection error: {e}")
         raise HTTPException(status_code=502, detail=f"Connection error to TED API: {e}")
     except HTTPException:
-        # уже оформлено выше
         raise
     except Exception as e:
         logger.exception("Unexpected error in /search")
         raise HTTPException(status_code=500, detail=str(e))
 
-# ---------- Статика ----------
-
+# Статика
 app.mount("/", StaticFiles(directory=".", html=True), name="static")
 
 if __name__ == "__main__":
