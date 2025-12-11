@@ -265,7 +265,7 @@ async function checkBackendStatus() {
         console.error("❌ HEALTH ERROR:", error);
         setBackendStatus(false);
     }
-    setTimeout(checkBackendStatus, 3000);
+    setTimeout(checkBackendStatus, 20000);
 }
 
 function setBackendStatus(isOnline) {
