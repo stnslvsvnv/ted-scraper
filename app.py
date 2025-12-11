@@ -83,7 +83,7 @@ def get_historical_broad() -> str:
 
 def get_test_query() -> str:
     # fallback, гарантированно даёт большую выборку
-    return "buyer-country = EU"
+    return "buyer-country = FRA"
 
 
 @app.post("/search")
@@ -96,7 +96,6 @@ async def search_notices(request: SearchRequest):
             # текстовый поиск
             if request.filters.text:
                 text = request.filters.text.strip()
-                # безопаснее обернуть в кавычки
                 ft_term = f'(notice-title ~ "{text}")'
                 query_terms.append(ft_term)
 
@@ -118,7 +117,7 @@ async def search_notices(request: SearchRequest):
                     query_terms.append(f"(publication-date <= {to_date})")
                     has_date_filter = True
 
-        # если фильтров нет — берём широкий исторический
+        # если фильтров нет — широкий исторический
         if not query_terms:
             expert_query = get_historical_broad()
         else:
@@ -140,40 +139,31 @@ async def search_notices(request: SearchRequest):
             "query": expert_query,
             "page": max(1, request.page),
             "limit": min(100, max(1, request.limit)),
-            "scope": "LATEST",
+            "scope": "ALL",  # как в рабочем curl
             "fields": SUPPORTED_FIELDS,
         }
 
         if API_KEY:
             payload["apiKey"] = API_KEY
 
+        # основной запрос
         async with httpx.AsyncClient() as client:
             response = await client.post(TED_API_URL, json=payload, timeout=120.0)
 
         data = response.json()
-        total = data.get("total", 0)
+        total = data.get("totalNoticeCount", data.get("total", 0))
         logger.info(f"Initial total: {total} lots")
 
-        # если 0 — пробуем scope=ALL
+        # fallback, если вдруг 0
         if total == 0:
-            logger.info("Initial 0; retry ALL")
-            payload["scope"] = "ALL"
-            async with httpx.AsyncClient() as client:
-                response = await client.post(TED_API_URL, json=payload, timeout=120.0)
-            data = response.json()
-            total = data.get("total", 0)
-            logger.info(f"ALL total: {total} lots")
-
-        # если опять 0 — fallback на buyer-country = EU
-        if total == 0:
-            logger.info("Still 0; test fallback EU")
+            logger.info("Still 0; test fallback FRA")
             payload["query"] = get_test_query()
             payload["scope"] = "ALL"
             async with httpx.AsyncClient() as client:
                 response = await client.post(TED_API_URL, json=payload, timeout=120.0)
             data = response.json()
-            total = data.get("total", 0)
-            logger.info(f"Test EU total: {total} lots")
+            total = data.get("totalNoticeCount", data.get("total", 0))
+            logger.info(f"Test FRA total: {total} lots")
 
         if response.status_code != 200:
             error_detail = (
@@ -188,19 +178,21 @@ async def search_notices(request: SearchRequest):
             )
 
         notices: List[Notice] = []
-        for item in data.get("results", []):
+        for item in data.get("notices", data.get("results", [])):
             notices.append(
                 Notice(
                     publication_number=item.get("publication-number", "N/A"),
                     publication_date=item.get("publication-date"),
                     title=item.get("notice-title", "No title"),
                     buyer=item.get("buyer-name", "Unknown buyer"),
-                    country=item.get("buyer-country", "Unknown"),
+                    country=item.get("buyer-country", ["Unknown"])[0]
+                    if isinstance(item.get("buyer-country"), list)
+                    else item.get("buyer-country", "Unknown"),
                 )
             )
 
         logger.info(f"Returned {len(notices)} lots out of {total}")
-        return SearchResponse(total=total, notices=notices)
+        return SearchResponse(total=int(total), notices=notices)
 
     except httpx.RequestError as e:
         logger.error(f"TED Connection: {e}")
