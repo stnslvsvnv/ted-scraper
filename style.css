@@ -1448,7 +1448,21 @@ a:hover {
     white-space: nowrap;
 }
 
+.col-date {
+    width: 110px;
+    white-space: nowrap;
+}
+
+.col-deadline {
+    width: 110px;
+    white-space: nowrap;
+}
+
 .col-title {
     min-width: 320px;
     max-width: 800px;
+}
+
+.col-location {
+    min-width: 150px;
 }
