@@ -1442,4 +1442,13 @@ a:hover {
         font-size: var(--font-size-sm);
     }
 }
-```
+/* ширина колонок таблицы */
+.col-pubnum {
+    width: 110px;
+    white-space: nowrap;
+}
+
+.col-title {
+    min-width: 320px;
+    max-width: 800px;
+}
