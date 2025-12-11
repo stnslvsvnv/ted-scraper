@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <title>TED Европа Поиск тендеров</title>
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="container">
+    <h1>TED Европа Поиск тендеров</h1>
+
+    <div class="backend-status-row">
+        Статус backend:
+        <span id="backend-status" class="badge bg-secondary">Проверка...</span>
+    </div>
+
+    <form id="search-form" class="search-form">
+        <label for="text">Текст поиска:</label>
+        <input id="text" type="text" placeholder="Например: computer" />
+
+        <label for="publication-date-from">Дата от (YYYY-MM-DD):</label>
+        <input id="publication-date-from" type="date" />
+
+        <label for="publication-date-to">Дата до (YYYY-MM-DD):</label>
+        <input id="publication-date-to" type="date" />
+
+        <label for="country">Страна (можно несколько):</label>
+        <select id="country" multiple size="8">
+            <option value="">— не выбрано —</option>
+            <option value="ALB">ALB — Albania</option>
+            <option value="AUT">AUT — Austria</option>
+            <option value="BEL">BEL — Belgium</option>
+            <option value="BGR">BGR — Bulgaria</option>
+            <option value="CHE">CHE — Switzerland</option>
+            <!-- при желании продолжишь список -->
+        </select>
+        <small>Используй Ctrl / Cmd для выбора нескольких стран.</small>
+
+        <label for="page-size">Результатов:</label>
+        <select id="page-size">
+            <option value="25" selected>25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+        </select>
+
+        <button id="search-btn" type="submit" class="btn btn-primary">Поиск</button>
+    </form>
+
+    <div id="loading-spinner" class="loading" style="display:none;">Загрузка...</div>
+
+    <div id="error-alert" class="alert" style="display:none;"></div>
+    <div id="search-status" class="alert" style="display:none;"></div>
+
+    <div id="empty-state" class="empty-state" style="display:none;">
+        Результаты не найдены. Попробуйте изменить критерии поиска.
+    </div>
+
+    <div id="results-container" style="display:none;">
+        <table class="results-table">
+            <thead>
+            <tr>
+                <th>Публикация</th>
+                <th>Дата</th>
+                <th>Дедлайн</th>
+                <th>Заголовок</th>
+                <th>Страна</th>
+                <th>Город</th>
+                <th>Место выполнения</th>
+            </tr>
+            </thead>
+            <tbody id="results-tbody"></tbody>
+        </table>
+    </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>

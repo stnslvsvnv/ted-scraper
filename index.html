@@ -1,78 +1,187 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" data-theme="light">
 <head>
     <meta charset="UTF-8" />
-    <title>TED Европа Поиск тендеров</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TED Europe - Поиск тендеров</title>
     <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
-<div class="container">
-    <h1>TED Европа Поиск тендеров</h1>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div>
+                <h1>TED Europe - Поиск тендеров</h1>
+                <div class="backend-status">
+                    <span>Backend статус:</span>
+                    <span id="backend-status" class="status-badge offline">Проверка...</span>
+                </div>
+            </div>
+            <div class="theme-switcher">
+                <button class="theme-btn active" data-theme="light">
+                    <i class="fas fa-sun"></i> Светлая
+                </button>
+                <button class="theme-btn" data-theme="dark">
+                    <i class="fas fa-moon"></i> Тёмная
+                </button>
+            </div>
+        </header>
 
-    <div class="backend-status-row">
-        Статус backend:
-        <span id="backend-status" class="badge bg-secondary">Проверка...</span>
+        <!-- Main Layout -->
+        <div class="main-layout">
+            <!-- Search Panel -->
+            <aside class="search-panel">
+                <h2><i class="fas fa-search"></i> Поиск тендеров</h2>
+                
+                <form id="search-form">
+                    <!-- Text Search -->
+                    <div class="form-group">
+                        <label for="text">Ключевые слова:</label>
+                        <input type="text" id="text" class="form-control" 
+                               placeholder="Введите ключевые слова для поиска...">
+                    </div>
+
+                    <!-- Dates -->
+                    <div class="form-group">
+                        <label for="publication-date-from">Дата публикации:</label>
+                        <div style="display: flex; gap: 8px;">
+                            <input type="date" id="publication-date-from" class="form-control">
+                            <input type="date" id="publication-date-to" class="form-control">
+                        </div>
+                    </div>
+
+                    <!-- Country Multi-select -->
+                    <div class="form-group">
+                        <label for="country-select">Страны:</label>
+                        <div class="multi-select-container">
+                            <input type="text" id="country-select" class="form-control" 
+                                   placeholder="Выберите страны..." readonly
+                                   onclick="toggleCountryDropdown()">
+                            <div id="country-dropdown" class="multi-select-dropdown">
+                                <!-- Countries will be populated by JS -->
+                            </div>
+                        </div>
+                        <div id="selected-countries" class="selected-countries">
+                            <!-- Selected countries will appear here -->
+                        </div>
+                    </div>
+
+                    <!-- CPV/SKU Code -->
+                    <div class="form-group">
+                        <label for="cpv-code">
+                            CPV код (SKU):
+                            <span class="tooltip">
+                                <i class="fas fa-question-circle"></i>
+                                <span class="tooltip-text">
+                                    Код Common Procurement Vocabulary (CPV)<br>
+                                    Примеры: 30200000 - Компьютерная техника<br>
+                                    45210000 - Строительные работы
+                                </span>
+                            </span>
+                        </label>
+                        <input type="text" id="cpv-code" class="form-control" 
+                               placeholder="Введите CPV код (например: 30200000)">
+                    </div>
+
+                    <!-- Active Only Toggle -->
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="active-only">
+                        <label for="active-only">Только активные лоты (с неистекшим дедлайном)</label>
+                    </div>
+
+                    <!-- Results per page -->
+                    <div class="form-group">
+                        <label for="page-size">Результатов на странице:</label>
+                        <select id="page-size" class="form-control">
+                            <option value="25">25</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                        </select>
+                    </div>
+
+                    <!-- Buttons -->
+                    <div class="form-group" style="display: flex; gap: 8px; margin-top: 20px;">
+                        <button type="submit" id="search-btn" class="btn btn-primary" style="flex: 1;">
+                            <i class="fas fa-search"></i> Найти тендеры
+                        </button>
+                        <button type="button" id="clear-btn" class="btn btn-secondary">
+                            <i class="fas fa-times"></i> Очистить
+                        </button>
+                    </div>
+                </form>
+            </aside>
+
+            <!-- Results Panel -->
+            <main class="results-panel">
+                <!-- Results Header -->
+                <div class="results-header">
+                    <div class="results-count">
+                        <span id="results-summary">Введите критерии поиска</span>
+                    </div>
+                    <div class="results-controls">
+                        <div id="loading-spinner" class="loader" style="display: none;">
+                            <div class="loader-spinner"></div>
+                            <div>Загрузка...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Alerts -->
+                <div id="error-alert" class="alert alert-error" style="display: none;"></div>
+                <div id="info-alert" class="alert alert-info" style="display: none;"></div>
+
+                <!-- Empty State -->
+                <div id="empty-state" class="empty-state" style="display: none;">
+                    <i class="fas fa-inbox" style="font-size: 48px; margin-bottom: 16px; color: #ccc;"></i>
+                    <h3>Нет результатов</h3>
+                    <p>Попробуйте изменить критерии поиска</p>
+                </div>
+
+                <!-- Results Table -->
+                <div id="results-container" style="display: none;">
+                    <div class="table-container">
+                        <table class="results-table">
+                            <thead>
+                                <tr>
+                                    <th>Публикация</th>
+                                    <th>Дата</th>
+                                    <th>Дедлайн</th>
+                                    <th>Заголовок</th>
+                                    <th>Страна</th>
+                                    <th>Город</th>
+                                    <th>CPV</th>
+                                </tr>
+                            </thead>
+                            <tbody id="results-tbody">
+                                <!-- Results will be populated here -->
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Pagination -->
+                    <div class="pagination">
+                        <button id="prev-page" class="btn btn-secondary" disabled>
+                            <i class="fas fa-chevron-left"></i> Назад
+                        </button>
+                        <span id="page-info">Страница 1</span>
+                        <button id="next-page" class="btn btn-secondary" disabled>
+                            Вперёд <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
+                </div>
+            </main>
+        </div>
+
+        <!-- Footer -->
+        <footer style="text-align: center; margin-top: 20px; padding-top: 20px; 
+                      border-top: 1px solid var(--color-border); color: var(--color-text-secondary); 
+                      font-size: 0.875rem;">
+            <p>TED Europe - Система поиска тендеров Европейского Союза</p>
+            <p>Данные предоставлены через официальный API TED</p>
+        </footer>
     </div>
 
-    <form id="search-form" class="search-form">
-        <label for="text">Текст поиска:</label>
-        <input id="text" type="text" placeholder="Например: computer" />
-
-        <label for="publication-date-from">Дата от (YYYY-MM-DD):</label>
-        <input id="publication-date-from" type="date" />
-
-        <label for="publication-date-to">Дата до (YYYY-MM-DD):</label>
-        <input id="publication-date-to" type="date" />
-
-        <label for="country">Страна (можно несколько):</label>
-        <select id="country" multiple size="8">
-            <option value="">— не выбрано —</option>
-            <option value="ALB">ALB — Albania</option>
-            <option value="AUT">AUT — Austria</option>
-            <option value="BEL">BEL — Belgium</option>
-            <option value="BGR">BGR — Bulgaria</option>
-            <option value="CHE">CHE — Switzerland</option>
-            <!-- при желании продолжишь список -->
-        </select>
-        <small>Используй Ctrl / Cmd для выбора нескольких стран.</small>
-
-        <label for="page-size">Результатов:</label>
-        <select id="page-size">
-            <option value="25" selected>25</option>
-            <option value="50">50</option>
-            <option value="100">100</option>
-        </select>
-
-        <button id="search-btn" type="submit" class="btn btn-primary">Поиск</button>
-    </form>
-
-    <div id="loading-spinner" class="loading" style="display:none;">Загрузка...</div>
-
-    <div id="error-alert" class="alert" style="display:none;"></div>
-    <div id="search-status" class="alert" style="display:none;"></div>
-
-    <div id="empty-state" class="empty-state" style="display:none;">
-        Результаты не найдены. Попробуйте изменить критерии поиска.
-    </div>
-
-    <div id="results-container" style="display:none;">
-        <table class="results-table">
-            <thead>
-            <tr>
-                <th>Публикация</th>
-                <th>Дата</th>
-                <th>Дедлайн</th>
-                <th>Заголовок</th>
-                <th>Страна</th>
-                <th>Город</th>
-                <th>Место выполнения</th>
-            </tr>
-            </thead>
-            <tbody id="results-tbody"></tbody>
-        </table>
-    </div>
-</div>
-
-<script src="script.js"></script>
+    <script src="script.js"></script>
 </body>
 </html>
