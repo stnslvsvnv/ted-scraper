@@ -1,243 +1,265 @@
-/* TED Scraper Frontend – версия с правильным порядком колонок */
+const API_BASE = "http://localhost:8000";
 
-const CONFIG = {
-    BACKEND_BASE_URL: window.location.origin,
-    REQUEST_TIMEOUT: 30000
-};
-
-console.log('Backend URL:', CONFIG.BACKEND_BASE_URL);
-
-let currentSearchData = null;
 let currentPage = 1;
+let currentFilters = {};
+let totalResults = 0;
 
-const elements = {
-    searchForm: document.getElementById('search-form'),
-    textInput: document.getElementById('text'),
-    dateFrom: document.getElementById('publication-date-from'),
-    dateTo: document.getElementById('publication-date-to'),
-    countryInput: document.getElementById('country'),
-    pageSize: document.getElementById('page-size') || { value: '25' },
-    searchBtn: document.getElementById('search-btn'),
-    backendStatus: document.getElementById('backend-status'),
-    resultsContainer: document.getElementById('results-container'),
-    resultsTbody: document.getElementById('results-tbody'),
-    emptyState: document.getElementById('empty-state'),
-    loadingSpinner: document.getElementById('loading-spinner'),
-    errorAlert: document.getElementById('error-alert'),
-    searchStatus: document.getElementById('search-status')
-};
+// Инициализация
+document.addEventListener("DOMContentLoaded", () => {
+    document.getElementById("searchBtn").addEventListener("click", performSearch);
+    document.getElementById("prevPage").addEventListener("click", () => changePage(-1));
+    document.getElementById("nextPage").addEventListener("click", () => changePage(1));
 
-document.addEventListener('DOMContentLoaded', () => {
-    console.log('TED Scraper Frontend loaded');
-    setupEventListeners();
-    checkBackendStatus();
-    setDefaultDates();
+    // Enter для поиска
+    ["searchText", "countryFilter", "dateFrom", "dateTo"].forEach(id => {
+        document.getElementById(id)?.addEventListener("keypress", (e) => {
+            if (e.key === "Enter") performSearch();
+        });
+    });
+
+    // Первоначальный поиск
     performSearch();
 });
 
-function setupEventListeners() {
-    if (elements.searchForm) {
-        elements.searchForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            currentPage = 1;
-            performSearch();
-        });
-    }
-    if (elements.searchBtn) {
-        elements.searchBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            currentPage = 1;
-            performSearch();
-        });
-    }
-}
-
-function setDefaultDates() {
-    const today = new Date();
-    const fromDate = new Date(today.getFullYear(), 9, 1);
-    const fromStr = fromDate.toISOString().split('T')[0];
-    const toStr = today.toISOString().split('T')[0];
-    if (elements.dateFrom) elements.dateFrom.value = fromStr;
-    if (elements.dateTo) elements.dateTo.value = toStr;
-}
-
-async function checkBackendStatus() {
-    try {
-        const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/health`, { timeout: 5000 });
-        if (response.ok) {
-            if (elements.backendStatus) {
-                elements.backendStatus.textContent = 'Online';
-                elements.backendStatus.classList.remove('bg-danger');
-                elements.backendStatus.classList.add('bg-success');
-            }
-        } else {
-            setBackendOffline();
-        }
-    } catch (error) {
-        setBackendOffline();
-    }
-    setTimeout(checkBackendStatus, 30000);
-}
-
-function setBackendOffline() {
-    if (elements.backendStatus) {
-        elements.backendStatus.textContent = 'Offline';
-        elements.backendStatus.classList.remove('bg-success');
-        elements.backendStatus.classList.add('bg-danger');
-    }
-}
-
-function getSearchRequest() {
-    const text = elements.textInput?.value?.trim() || null;
-    let publicationDateFrom = elements.dateFrom?.value?.trim() || null;
-    let publicationDateTo = elements.dateTo?.value?.trim() || null;
-
-    let country = null;
-    if (elements.countryInput && elements.countryInput.options) {
-        const selected = Array.from(elements.countryInput.options)
-            .filter(o => o.selected && o.value)
-            .map(o => o.value);
-        if (selected.length) {
-            country = selected.join(',');
-        }
-    }
-
-    const limit = parseInt(elements.pageSize?.value || '25');
-
-    if (!publicationDateFrom) publicationDateFrom = '2024-10-01';
-    if (!publicationDateTo) publicationDateTo = new Date().toISOString().split('T')[0];
-
-    return {
-        filters: {
-            text: text,
-            publication_date_from: publicationDateFrom,
-            publication_date_to: publicationDateTo,
-            country: country
-        },
-        page: currentPage,
-        limit: limit
-    };
-}
-
 async function performSearch() {
+    currentPage = 1;
+    currentFilters = {
+        text: document.getElementById("searchText").value.trim() || null,
+        country: document.getElementById("countryFilter").value.trim() || null,
+        publication_date_from: document.getElementById("dateFrom").value || null,
+        publication_date_to: document.getElementById("dateTo").value || null,
+    };
+
+    await fetchResults();
+}
+
+async function changePage(delta) {
+    const newPage = currentPage + delta;
+    if (newPage < 1) return;
+
+    const totalPages = Math.ceil(totalResults / 25);
+    if (newPage > totalPages) return;
+
+    currentPage = newPage;
+    await fetchResults();
+}
+
+async function fetchResults() {
+    const resultsDiv = document.getElementById("results");
+    const tbody = document.querySelector("#resultsTable tbody");
+    const statusDiv = document.getElementById("status");
+    const pagination = document.getElementById("pagination");
+
+    resultsDiv.style.display = "none";
+    statusDiv.textContent = "Searching...";
+    statusDiv.className = "status info";
+
     try {
-        if (elements.searchBtn) elements.searchBtn.disabled = true;
-        if (elements.loadingSpinner) elements.loadingSpinner.style.display = 'block';
-
-        hideEmptyState();
-        hideResults();
-        hideError();
-        showStatus('Поиск...');
-
-        const request = getSearchRequest();
-        console.log('Sending search request:', request);
-
-        const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/search`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(request),
-            timeout: CONFIG.REQUEST_TIMEOUT
+        const response = await fetch(`${API_BASE}/search`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                filters: currentFilters,
+                page: currentPage,
+                limit: 25,
+            }),
         });
-
-        console.log('Response status:', response.status);
 
         if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.detail || `HTTP ${response.status}`);
+            const error = await response.json();
+            throw new Error(error.detail || "Search failed");
         }
 
         const data = await response.json();
-        currentSearchData = data;
-        console.log('Search results:', data);
-        displayResults(data);
+        totalResults = data.total;
 
-        if (elements.searchStatus) {
-            elements.searchStatus.classList.remove('alert-warning');
-            elements.searchStatus.classList.add('alert-success');
-            elements.searchStatus.textContent = `${data.notices.length} результатов из ${data.total}`;
+        tbody.innerHTML = "";
+
+        if (data.notices.length === 0) {
+            statusDiv.textContent = "No results found";
+            statusDiv.className = "status warning";
+            return;
         }
+
+        data.notices.forEach((notice) => {
+            const row = createNoticeRow(notice);
+            tbody.appendChild(row);
+        });
+
+        updatePaginationInfo();
+        resultsDiv.style.display = "block";
+        statusDiv.textContent = "";
+        pagination.style.display = "flex";
+
     } catch (error) {
-        console.error('Search error:', error);
-        showError(`Ошибка поиска: ${error.message}`);
-    } finally {
-        if (elements.searchBtn) elements.searchBtn.disabled = false;
-        if (elements.loadingSpinner) elements.loadingSpinner.style.display = 'none';
+        console.error("Search error:", error);
+        statusDiv.textContent = `Error: ${error.message}`;
+        statusDiv.className = "status error";
     }
 }
 
-function displayResults(data) {
-    if (!data.notices || data.notices.length === 0) {
-        showNoResults();
+function createNoticeRow(notice) {
+    const row = document.createElement("tr");
+    row.className = "notice-row";
+    row.dataset.publicationNumber = notice.publication_number;
+
+    row.innerHTML = `
+        <td>${notice.publication_number || "—"}</td>
+        <td>${notice.publication_date || "—"}</td>
+        <td>${notice.deadline_date || "—"}</td>
+        <td>${notice.title || "—"}</td>
+        <td>${notice.country || "—"}</td>
+        <td>${notice.city || "—"}</td>
+        <td>${notice.performance_city || "—"}</td>
+    `;
+
+    row.addEventListener("click", () => toggleAccordion(row));
+    return row;
+}
+
+async function toggleAccordion(row) {
+    const publicationNumber = row.dataset.publicationNumber;
+    const existingDetail = row.nextElementSibling;
+
+    // Если уже открыто — закрыть
+    if (existingDetail && existingDetail.classList.contains("detail-row")) {
+        existingDetail.remove();
+        row.classList.remove("expanded");
         return;
     }
-    if (elements.resultsContainer) elements.resultsContainer.style.display = 'block';
-    if (!elements.resultsTbody) return;
 
-    elements.resultsTbody.innerHTML = '';
+    // Закрыть все другие открытые
+    document.querySelectorAll(".detail-row").forEach(el => el.remove());
+    document.querySelectorAll(".notice-row").forEach(r => r.classList.remove("expanded"));
 
-    data.notices.forEach((notice) => {
-        const row = document.createElement('tr');
-        row.dataset.publicationNumber = notice.publication_number;
+    row.classList.add("expanded");
 
-        const pubNum = notice.publication_number || 'N/A';
-        const pubDate = notice.publication_date || '-';
-        const title = notice.title || 'Нет заголовка';
-        const deadline = notice.deadline_date || '-';
+    // Показать загрузку
+    const loadingRow = document.createElement("tr");
+    loadingRow.className = "detail-row";
+    loadingRow.innerHTML = `<td colspan="7" class="detail-content"><div class="loading">Loading details...</div></td>`;
+    row.after(loadingRow);
 
-        let locationParts = [];
-        if (notice.country) locationParts.push(notice.country);
-        if (notice.city) locationParts.push(notice.city);
-        if (notice.performance_city && notice.performance_city !== notice.city) {
-            locationParts.push(`(${notice.performance_city})`);
+    try {
+        const response = await fetch(`${API_BASE}/notice/${publicationNumber}`);
+        if (!response.ok) {
+            throw new Error("Failed to load details");
         }
-        const location = locationParts.join(' / ') || '-';
 
-        // ВАЖНО: порядок точно совпадает с заголовками в HTML
-        // Номер | Дата публикации | Описание | Дедлайн | Страна/город
-        row.innerHTML = `
-            <td class="col-pubnum">${pubNum}</td>
-            <td class="col-date">${pubDate}</td>
-            <td class="col-title">${title}</td>
-            <td class="col-deadline">${deadline}</td>
-            <td class="col-location">${location}</td>
-        `;
-        elements.resultsTbody.appendChild(row);
-    });
-}
+        const detail = await response.json();
+        loadingRow.querySelector("td").innerHTML = renderDetail(detail);
 
-function showNoResults() {
-    if (elements.emptyState) elements.emptyState.style.display = 'block';
-    if (elements.resultsContainer) elements.resultsContainer.style.display = 'none';
-    if (elements.searchStatus) {
-        elements.searchStatus.textContent = '0 результатов';
-        elements.searchStatus.classList.add('alert-warning');
+        // Добавить обработчик для вложенного accordion (Notice)
+        const noticeToggle = loadingRow.querySelector(".notice-toggle");
+        if (noticeToggle) {
+            noticeToggle.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const noticeContent = loadingRow.querySelector(".notice-content");
+                noticeContent.classList.toggle("open");
+                noticeToggle.textContent = noticeContent.classList.contains("open") 
+                    ? "▼ Hide Full Notice" 
+                    : "► Show Full Notice";
+            });
+        }
+
+    } catch (error) {
+        console.error("Error loading detail:", error);
+        loadingRow.querySelector("td").innerHTML = `<div class="error">Failed to load details: ${error.message}</div>`;
     }
 }
 
-function showError(message) {
-    if (elements.errorAlert) {
-        elements.errorAlert.textContent = message;
-        elements.errorAlert.style.display = 'block';
-        elements.errorAlert.classList.add('alert-danger');
-    }
+function renderDetail(detail) {
+    const summary = detail.summary;
+    const lot = summary.lot;
+    const buyer = summary.buyer;
+
+    return `
+        <div class="detail-container">
+            <div class="detail-section">
+                <h3>Direct URL</h3>
+                <p><a href="${detail.direct_url}" target="_blank">${detail.direct_url}</a></p>
+            </div>
+
+            <div class="detail-section">
+                <h3>Summary</h3>
+                <div class="summary-grid">
+                    <div class="summary-item">
+                        <strong>Type:</strong> ${summary.type}
+                    </div>
+                    <div class="summary-item">
+                        <strong>Country:</strong> ${summary.country}
+                    </div>
+                    <div class="summary-item">
+                        <strong>Procedure:</strong> ${summary.procedure_type}
+                    </div>
+                </div>
+
+                <h4>Buyer</h4>
+                <div class="summary-grid">
+                    <div class="summary-item">
+                        <strong>Name:</strong> ${buyer.name}
+                    </div>
+                    <div class="summary-item">
+                        <strong>Email:</strong> <a href="mailto:${buyer.email}">${buyer.email}</a>
+                    </div>
+                    <div class="summary-item">
+                        <strong>Location:</strong> ${buyer.city}, ${buyer.country}
+                    </div>
+                </div>
+
+                <h4>${lot.title}</h4>
+                <div class="summary-grid">
+                    <div class="summary-item">
+                        <strong>Description:</strong> ${lot.description}
+                    </div>
+                    <div class="summary-item">
+                        <strong>Contract Nature:</strong> ${lot.contract_nature}
+                    </div>
+                    <div class="summary-item">
+                        <strong>Classification:</strong> ${lot.classification}
+                    </div>
+                    <div class="summary-item">
+                        <strong>Place:</strong> ${lot.place_of_performance.city}, ${lot.place_of_performance.country}
+                    </div>
+                    <div class="summary-item">
+                        <strong>Start Date:</strong> ${lot.start_date || "N/A"}
+                    </div>
+                    <div class="summary-item">
+                        <strong>End Date:</strong> ${lot.end_date || "N/A"}
+                    </div>
+                    <div class="summary-item deadline-highlight">
+                        <strong>Deadline:</strong> ${lot.deadline.date || "N/A"} ${lot.deadline.time || ""}
+                    </div>
+                </div>
+            </div>
+
+            <div class="detail-section">
+                <button class="notice-toggle">► Show Full Notice</button>
+                <div class="notice-content">
+                    <h3>Full Notice Details</h3>
+                    <div class="notice-fields">
+                        ${renderFullNotice(detail.full_notice)}
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
 }
 
-function hideEmptyState() {
-    if (elements.emptyState) elements.emptyState.style.display = 'none';
+function renderFullNotice(fullNotice) {
+    return Object.entries(fullNotice)
+        .map(([key, value]) => `
+            <div class="notice-field">
+                <strong>${key}:</strong> <span>${value}</span>
+            </div>
+        `)
+        .join("");
 }
-function hideResults() {
-    if (elements.resultsContainer) elements.resultsContainer.style.display = 'none';
-}
-function hideError() {
-    if (elements.errorAlert) {
-        elements.errorAlert.style.display = 'none';
-        elements.errorAlert.classList.remove('alert-danger');
-    }
-}
-function showStatus(message) {
-    if (elements.searchStatus) {
-        elements.searchStatus.textContent = message;
-        elements.searchStatus.style.display = 'block';
-        elements.searchStatus.classList.add('alert-info');
-    }
+
+function updatePaginationInfo() {
+    const totalPages = Math.ceil(totalResults / 25);
+    document.getElementById("pageInfo").textContent = 
+        `Page ${currentPage} of ${totalPages} (Total: ${totalResults} results)`;
+    document.getElementById("prevPage").disabled = currentPage === 1;
+    document.getElementById("nextPage").disabled = currentPage >= totalPages;
 }
