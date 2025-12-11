@@ -1,5 +1,5 @@
 """
-TED Scraper Backend - search + notice details with multilang handling
+TED Scraper Backend - стабильная минимальная версия поиска
 """
 
 from fastapi import FastAPI, HTTPException
@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import List, Optional, Any
+from typing import List, Optional
 import httpx
 import logging
 import os
@@ -28,29 +28,12 @@ app.add_middleware(
 TED_API_URL = "https://api.ted.europa.eu/v3/notices/search"
 API_KEY = os.getenv("TED_API_KEY", None)
 
-PREFERRED_LANGS = ["eng", "fra", "deu"]
-
-SEARCH_FIELDS = [
+SUPPORTED_FIELDS = [
     "publication-number",
     "publication-date",
     "notice-title",
     "buyer-name",
     "buyer-country",
-]
-
-DETAIL_FIELDS = [
-    "publication-number",
-    "publication-date",
-    "notice-title",
-    "buyer-name",
-    "buyer-country",
-    "place-of-performance-country-lot",
-    "place-of-performance-city-lot",
-    "deadline-receipt-tender-date-lot",
-    "deadline-receipt-tender-time-lot",
-    "contract-nature",
-    "description-lot",
-    "title-lot",
 ]
 
 
@@ -80,61 +63,6 @@ class SearchResponse(BaseModel):
     notices: List[Notice]
 
 
-class NoticeDetail(BaseModel):
-    publication_number: str
-    direct_url: str
-    summary: dict
-    full_notice: dict
-
-
-def extract_multilang_field(field_value: Any, default: str = "N/A") -> str:
-    if isinstance(field_value, str):
-        return field_value
-
-    if isinstance(field_value, dict):
-        for lang in PREFERRED_LANGS:
-            if lang in field_value:
-                val = field_value[lang]
-                if isinstance(val, list) and val:
-                    return val[0]
-                if isinstance(val, str):
-                    return val
-        for val in field_value.values():
-            if isinstance(val, list) and val:
-                return val[0]
-            if isinstance(val, str):
-                return val
-
-    if isinstance(field_value, list) and field_value:
-        first = field_value[0]
-        if isinstance(first, str):
-            return first
-        if isinstance(first, dict):
-            return extract_multilang_field(first, default)
-
-    return default
-
-
-def normalize_date(date_str: Optional[str]) -> Optional[str]:
-    if not date_str or not isinstance(date_str, str):
-        return None
-    return date_str[:10]
-
-
-def normalize_time(time_str: Optional[str]) -> Optional[str]:
-    if not time_str or not isinstance(time_str, str):
-        return None
-    return time_str.split()[0] if " " in time_str else time_str
-
-
-def get_historical_broad() -> str:
-    return "(publication-date >= 19930101)"
-
-
-def get_test_query() -> str:
-    return "buyer-country = FRA"
-
-
 @app.get("/health")
 async def health():
     return {"status": "ok", "api_key": "set" if API_KEY else "missing (limited access)"}
@@ -147,43 +75,109 @@ async def read_root():
     return FileResponse("index.html")
 
 
+def get_historical_broad() -> str:
+    return "(publication-date >= 19930101)"
+
+
 @app.post("/search")
 async def search_notices(request: SearchRequest):
+    query_terms = []
+    has_date_filter = False
+
+    if request.filters:
+        if request.filters.text:
+            text = request.filters.text.strip()
+            query_terms.append(f'(notice-title ~ "{text}")')
+
+        if request.filters.country:
+            country = request.filters.country.strip().upper()
+            query_terms.append(f"(buyer-country = {country})")
+
+        if request.filters.publication_date_from:
+            from_date = request.filters.publication_date_from.replace("-", "")
+            if from_date:
+                query_terms.append(f"(publication-date >= {from_date})")
+                has_date_filter = True
+
+        if request.filters.publication_date_to:
+            to_date = request.filters.publication_date_to.replace("-", "")
+            if to_date:
+                query_terms.append(f"(publication-date <= {to_date})")
+                has_date_filter = True
+
+    if not query_terms:
+        expert_query = get_historical_broad()
+    else:
+        expert_query = " AND ".join(query_terms)
+
+    if (
+        has_date_filter
+        and (not request.filters or not request.filters.text)
+        and (not request.filters or not request.filters.country)
+    ):
+        expert_query = f"{get_historical_broad()} AND {expert_query}"
+
+    logger.info(
+        f"POST /search: query={expert_query}, page={request.page}, limit={request.limit}"
+    )
+
+    payload = {
+        "query": expert_query,
+        "page": max(1, request.page),
+        "limit": min(100, max(1, request.limit)),
+        "scope": "ALL",
+        "fields": SUPPORTED_FIELDS,
+    }
+
+    if API_KEY:
+        payload["apiKey"] = API_KEY
+
     try:
-        query_terms: List[str] = []
-        has_date_filter = False
+        async with httpx.AsyncClient() as client:
+            response = await client.post(TED_API_URL, json=payload, timeout=60.0)
 
-        if request.filters:
-            if request.filters.text:
-                text = request.filters.text.strip()
-                ft_term = f'(notice-title ~ "{text}")'
-                query_terms.append(ft_term)
+        if response.status_code != 200:
+            detail = (
+                response.json().get("message", response.text[:200])
+                if response.content
+                else "No response"
+            )
+            logger.error(f"TED API error {response.status_code}: {detail}")
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=f"TED API error: {detail}",
+            )
 
-            if request.filters.country:
-                country = request.filters.country.strip().upper()
-                query_terms.append(f"(buyer-country = {country})")
+        data = response.json()
+        total = data.get("totalNoticeCount", data.get("total", 0)) or 0
 
-            if request.filters.publication_date_from:
-                from_date = request.filters.publication_date_from.replace("-", "")
-                if from_date:
-                    query_terms.append(f"(publication-date >= {from_date})")
-                    has_date_filter = True
+        notices: List[Notice] = []
+        for item in data.get("notices", data.get("results", [])):
+            notices.append(
+                Notice(
+                    publication_number=item.get("publication-number", "N/A"),
+                    publication_date=item.get("publication-date"),
+                    title=item.get("notice-title", "No title"),
+                    buyer=item.get("buyer-name", "Unknown buyer"),
+                    country=item.get("buyer-country", "Unknown"),
+                )
+            )
 
-            if request.filters.publication_date_to:
-                to_date = request.filters.publication_date_to.replace("-", "")
-                if to_date:
-                    query_terms.append(f"(publication-date <= {to_date})")
-                    has_date_filter = True
+        logger.info(f"Returned {len(notices)} notices out of {total}")
+        return SearchResponse(total=int(total), notices=notices)
 
-        if not query_terms:
-            expert_query = get_historical_broad()
-        else:
-            expert_query = " AND ".join(query_terms)
+    except httpx.RequestError as e:
+        logger.error(f"TED connection error: {e}")
+        raise HTTPException(status_code=502, detail=f"Connection error: {str(e)}")
+    except Exception as e:
+        logger.error(f"Search error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-        if (
-            has_date_filter
-            and (not request.filters or not request.filters.text)
-            and (not request.filters or not request.filters.country)
-        ):
-            expert_query = f"{get_historical_broad()} AND {expert_query}"
 
+app.mount("/", StaticFiles(directory=".", html=True), name="static")
+
+if __name__ == "__main__":
+    import uvicorn
+
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run(app, host="0.0.0.0", port=port)
