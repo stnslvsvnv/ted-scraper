@@ -298,7 +298,6 @@ function getSearchRequest() {
 }
 
 // Выполнение поиска
-// Выполнение поиска - С ДИАГНОСТИКОЙ
 async function performSearch() {
     console.log("🔍 START SEARCH", currentPage);
     try {
@@ -332,7 +331,21 @@ async function performSearch() {
         const data = await response.json();
         console.log("✅ SEARCH DATA:", data);
         
-        // ... остальной код без изменений
+        // Обработка полученных данных
+        if (data.notices && data.notices.length > 0) {
+            totalResults = data.total;
+            const limit = parseInt(elements.pageSize?.value || "25", 10);
+            totalPages = Math.ceil(totalResults / limit);
+            
+            displayResults(data.notices);
+            showResults();
+            updatePagination();
+            updateResultsSummary(data.total);
+            hideEmptyState();
+        } else {
+            showNoResults();
+            hideResults();
+        }
         
     } catch (error) {
         console.error("💥 FULL ERROR:", error);
@@ -342,8 +355,7 @@ async function performSearch() {
     }
 }
 
-
-// ✅ FIXED: Отображение результатов с правильными ссылками
+// Отображение результатов
 function displayResults(notices) {
     if (!elements.resultsTbody) return;
     
@@ -368,50 +380,50 @@ function displayResults(notices) {
             <td>${notice.cpv_code || '—'}</td>
         `;
         
-        // ✅ FIXED: Click handler для expandable row
-		row.addEventListener('click', async () => {
-			// сначала пробуем найти уже существующую строку деталей
-			let detailRow = document.querySelector(`[data-publication="${notice.publication_number}"]`);
-			if (detailRow) {
-				detailRow.remove();
-				row.classList.remove('expanded');
-				return;
-			}
+        // Click handler для expandable row
+        row.addEventListener('click', async () => {
+            // сначала пробуем найти уже существующую строку деталей
+            let detailRow = document.querySelector(`[data-publication="${notice.publication_number}"]`);
+            if (detailRow) {
+                detailRow.remove();
+                row.classList.remove('expanded');
+                return;
+            }
 
-			row.classList.add('expanded');
+            row.classList.add('expanded');
 
-			const directUrl = `https://ted.europa.eu/en/notice/${notice.publication_number}/html`;
+            const directUrl = `https://ted.europa.eu/en/notice/${notice.publication_number}/html`;
 
-			// создаём новую строку деталей
-			detailRow = document.createElement('tr');  // ← здесь уже let, без второго const
-			detailRow.className = 'detail-row';
-			detailRow.dataset.publication = notice.publication_number;
-			detailRow.innerHTML = `
-				<td colspan="7" class="detail-cell">
-					<div class="detail-container">
-						<div class="detail-section">
-							<h3>📄 Direct Link & Summary</h3>
-							<div class="detail-grid">
-								<div class="detail-item">
-									<strong>Publication:</strong>
-									<a href="${directUrl}" target="_blank" class="btn btn-primary">Open TED Notice</a>
-								</div>
-								<div class="detail-item">
-									<strong>Title:</strong> ${notice.title || '—'}
-								</div>
-								<div class="detail-item">
-									<strong>Buyer:</strong> ${notice.buyer || '—'}
-								</div>
-								<div class="detail-item">
-									<strong>CPV:</strong> ${notice.cpv_code || '—'}
-								</div>
-							</div>
-						</div>
-					</div>
-				</td>
-			`;
-			elements.resultsTbody.appendChild(detailRow);
-		});
+            // создаём новую строку деталей
+            detailRow = document.createElement('tr');
+            detailRow.className = 'detail-row';
+            detailRow.dataset.publication = notice.publication_number;
+            detailRow.innerHTML = `
+                <td colspan="7" class="detail-cell">
+                    <div class="detail-container">
+                        <div class="detail-section">
+                            <h3>📄 Direct Link & Summary</h3>
+                            <div class="detail-grid">
+                                <div class="detail-item">
+                                    <strong>Publication:</strong>
+                                    <a href="${directUrl}" target="_blank" class="btn btn-primary">Open TED Notice</a>
+                                </div>
+                                <div class="detail-item">
+                                    <strong>Title:</strong> ${notice.title || '—'}
+                                </div>
+                                <div class="detail-item">
+                                    <strong>Buyer:</strong> ${notice.buyer || '—'}
+                                </div>
+                                <div class="detail-item">
+                                    <strong>CPV:</strong> ${notice.cpv_code || '—'}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </td>
+            `;
+            elements.resultsTbody.appendChild(detailRow);
+        });
         
         elements.resultsTbody.appendChild(row);
     });
@@ -419,8 +431,17 @@ function displayResults(notices) {
 
 function formatDate(dateStr) {
     try {
-        const date = new Date(dateStr);
-        return date.toLocaleDateString('ru-RU');
+        // Предполагаем, что дата может приходить в формате YYYYMMDD или YYYY-MM-DD
+        let cleanDate = dateStr.replace(/-/g, '');
+        
+        if (cleanDate.length === 8) {
+            const year = cleanDate.substring(0, 4);
+            const month = cleanDate.substring(4, 6);
+            const day = cleanDate.substring(6, 8);
+            return `${day}.${month}.${year}`;
+        }
+        
+        return dateStr || '—';
     } catch {
         return dateStr || '—';
     }
@@ -435,6 +456,13 @@ function updatePagination() {
     }
     if (elements.nextPage) {
         elements.nextPage.disabled = currentPage >= totalPages;
+    }
+}
+
+// Обновление сводки результатов
+function updateResultsSummary(total) {
+    if (elements.resultsSummary) {
+        elements.resultsSummary.textContent = `Найдено тендеров: ${total}`;
     }
 }
 
@@ -495,7 +523,7 @@ function hideInfo() {
     }
 }
 
-// 🔥 ТЕСТОВЫЙ КНОПКА для DevTools
+// 🔥 ТЕСТОВАЯ КНОПКА для DevTools
 window.testBackend = async () => {
     console.log("🧪 TESTING...");
     try {
