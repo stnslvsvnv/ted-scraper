@@ -1,5 +1,5 @@
 """
-TED Scraper Backend - Key support + test fallback "buyer-country = EU"
+TED Scraper Backend - Key support + test fallback "buyer-country = FRA"
 """
 
 from fastapi import FastAPI, HTTPException
@@ -7,11 +7,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Any
 import httpx
 import logging
 import os
-from datetime import datetime
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("tedapi")
@@ -36,7 +35,9 @@ SUPPORTED_FIELDS = [
     "buyer-country",
 ]
 
-API_KEY = os.getenv("TED_API_KEY", None)  # export TED_API_KEY=your_key
+API_KEY = os.getenv("TED_API_KEY", None)
+
+PREFERRED_LANGS = ["eng", "fra", "deu"]
 
 
 class Filters(BaseModel):
@@ -65,6 +66,37 @@ class SearchResponse(BaseModel):
     notices: List[Notice]
 
 
+def extract_multilang_field(field_value: Any, default: str = "N/A") -> str:
+    """Извлекает значение из многоязычного поля TED"""
+    if isinstance(field_value, str):
+        return field_value
+
+    if isinstance(field_value, dict):
+        # пробуем предпочтительные языки
+        for lang in PREFERRED_LANGS:
+            if lang in field_value:
+                val = field_value[lang]
+                if isinstance(val, list) and val:
+                    return val[0]
+                if isinstance(val, str):
+                    return val
+        # берём первое попавшееся
+        for val in field_value.values():
+            if isinstance(val, list) and val:
+                return val[0]
+            if isinstance(val, str):
+                return val
+
+    if isinstance(field_value, list) and field_value:
+        first = field_value[0]
+        if isinstance(first, str):
+            return first
+        if isinstance(first, dict):
+            return extract_multilang_field(first, default)
+
+    return default
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "api_key": "set" if API_KEY else "missing (limited access)"}
@@ -82,7 +114,6 @@ def get_historical_broad() -> str:
 
 
 def get_test_query() -> str:
-    # fallback, гарантированно даёт большую выборку
     return "buyer-country = FRA"
 
 
@@ -93,18 +124,15 @@ async def search_notices(request: SearchRequest):
         has_date_filter = False
 
         if request.filters:
-            # текстовый поиск
             if request.filters.text:
                 text = request.filters.text.strip()
                 ft_term = f'(notice-title ~ "{text}")'
                 query_terms.append(ft_term)
 
-            # страна
             if request.filters.country:
                 country = request.filters.country.strip().upper()
                 query_terms.append(f"(buyer-country = {country})")
 
-            # даты
             if request.filters.publication_date_from:
                 from_date = request.filters.publication_date_from.replace("-", "")
                 if from_date:
@@ -117,13 +145,11 @@ async def search_notices(request: SearchRequest):
                     query_terms.append(f"(publication-date <= {to_date})")
                     has_date_filter = True
 
-        # если фильтров нет — широкий исторический
         if not query_terms:
             expert_query = get_historical_broad()
         else:
             expert_query = " AND ".join(query_terms)
 
-        # если только даты без текста и страны — расширяем историческим
         if (
             has_date_filter
             and (not request.filters or not request.filters.text)
@@ -139,14 +165,13 @@ async def search_notices(request: SearchRequest):
             "query": expert_query,
             "page": max(1, request.page),
             "limit": min(100, max(1, request.limit)),
-            "scope": "ALL",  # как в рабочем curl
+            "scope": "ALL",
             "fields": SUPPORTED_FIELDS,
         }
 
         if API_KEY:
             payload["apiKey"] = API_KEY
 
-        # основной запрос
         async with httpx.AsyncClient() as client:
             response = await client.post(TED_API_URL, json=payload, timeout=120.0)
 
@@ -154,7 +179,6 @@ async def search_notices(request: SearchRequest):
         total = data.get("totalNoticeCount", data.get("total", 0))
         logger.info(f"Initial total: {total} lots")
 
-        # fallback, если вдруг 0
         if total == 0:
             logger.info("Still 0; test fallback FRA")
             payload["query"] = get_test_query()
@@ -183,11 +207,9 @@ async def search_notices(request: SearchRequest):
                 Notice(
                     publication_number=item.get("publication-number", "N/A"),
                     publication_date=item.get("publication-date"),
-                    title=item.get("notice-title", "No title"),
-                    buyer=item.get("buyer-name", "Unknown buyer"),
-                    country=item.get("buyer-country", ["Unknown"])[0]
-                    if isinstance(item.get("buyer-country"), list)
-                    else item.get("buyer-country", "Unknown"),
+                    title=extract_multilang_field(item.get("notice-title"), "No title"),
+                    buyer=extract_multilang_field(item.get("buyer-name"), "Unknown buyer"),
+                    country=extract_multilang_field(item.get("buyer-country"), "Unknown"),
                 )
             )
 
@@ -202,7 +224,6 @@ async def search_notices(request: SearchRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# раздаём index.html, style.css, script.js из текущей директории по корню
 app.mount("/", StaticFiles(directory=".", html=True), name="static")
 
 if __name__ == "__main__":
