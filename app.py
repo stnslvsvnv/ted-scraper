@@ -1,6 +1,6 @@
 """
-TED Scraper Backend – исправленная версия для TED API v3
-Убраны невалидные поля fields, запрос работает стабильно
+TED Scraper Backend – FINAL VERSION для TED API v3
+fields содержит ТОЛЬКО supported значения из API ошибки
 """
 
 from fastapi import FastAPI, HTTPException
@@ -30,12 +30,27 @@ app.add_middleware(
 TED_API_URL = "https://api.ted.europa.eu/v3/notices/search"
 API_KEY = os.getenv("TED_API_KEY")
 
-# Модели
+# ТОЧНО supported fields из API ошибки + базовые
+SEARCH_FIELDS = [
+    "publication-number",
+    "publication-date", 
+    "notice-title",
+    "buyer-name",
+    "buyer-country",
+    "deadline-date",
+    "city",
+    # Добавил из supported списка для стабильности
+    "sme-part",
+    "touchpoint-gateway-ted-esen",
+    "organisation-city-serv-prov"
+]
+
+# Модели (без изменений)
 class Filters(BaseModel):
     text: Optional[str] = None
-    publication_date_from: Optional[str] = None  # YYYY-MM-DD
-    publication_date_to: Optional[str] = None  # YYYY-MM-DD
-    country: Optional[str] = None  # "DEU, FRA"
+    publication_date_from: Optional[str] = None
+    publication_date_to: Optional[str] = None
+    country: Optional[str] = None
     cpv_code: Optional[str] = None
     active_only: bool = False
 
@@ -58,13 +73,9 @@ class SearchResponse(BaseModel):
     total: int
     notices: List[Notice]
 
-# Служебные эндпоинты
 @app.get("/health")
 async def health():
-    return {
-        "status": "ok",
-        "api_key": "set" if API_KEY else "missing",
-    }
+    return {"status": "ok", "api_key": "set" if API_KEY else "missing"}
 
 @app.get("/countries")
 async def get_countries():
@@ -102,7 +113,6 @@ async def get_countries():
 async def root():
     return FileResponse("index.html")
 
-# Построение запроса к TED
 def build_ted_query(filters: Filters) -> str:
     parts = []
     if filters.text:
@@ -126,14 +136,12 @@ def build_ted_query(filters: Filters) -> str:
     if not parts:
         default_date = (datetime.now() - timedelta(days=30)).strftime("%Y%m%d")
         parts.append(f"(publication-date >= {default_date})")
-    query = " AND ".join(parts)
-    return query
+    return " AND ".join(parts)
 
-# Основной поиск
 @app.post("/search", response_model=SearchResponse)
 async def search_notices(req: SearchRequest):
     try:
-        query = build_ted_query(req.filters) if req.filters else "(publication-date >= 20240101)"
+        query = build_ted_query(req.filters) if req.filters else "(publication-date >= 20250101)"
         logger.info(f"TED Query: {query}")
         
         payload = {
@@ -141,7 +149,7 @@ async def search_notices(req: SearchRequest):
             "page": max(1, req.page),
             "limit": min(100, max(1, req.limit)),
             "scope": "ALL",
-            # УБРАЛИ fields - это вызывало 400 ошибку!
+            "fields": SEARCH_FIELDS  # ОБЯЗАТЕЛЬНО! Точные supported поля
         }
         if API_KEY:
             payload["apiKey"] = API_KEY
@@ -169,7 +177,7 @@ async def search_notices(req: SearchRequest):
                         buyer=item.get("buyer-name"),
                         country=item.get("buyer-country"),
                         city=item.get("city"),
-                        cpv_code=None,  # заполним позже через отдельный эндпоинт
+                        cpv_code=None,
                     )
                 )
             
@@ -185,7 +193,6 @@ async def search_notices(req: SearchRequest):
         logger.exception("Unexpected error in /search")
         raise HTTPException(status_code=500, detail=str(e))
 
-# Статика
 app.mount("/", StaticFiles(directory=".", html=True), name="static")
 
 if __name__ == "__main__":
