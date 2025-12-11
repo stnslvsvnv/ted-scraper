@@ -186,3 +186,4 @@ async def search_notices(request: SearchRequest):
             and (not request.filters or not request.filters.country)
         ):
             expert_query = f"{get_historical_broad()} AND {expert_query}"
+
