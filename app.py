@@ -35,7 +35,7 @@ SEARCH_FIELDS = [
     "notice-title",
     "buyer-name",
     "buyer-country",
-    "deadline-receipt-tenders",
+    "deadline-receipt-request",
     "organisation-city-buyer",
     "classification-cpv"
 ]
@@ -165,7 +165,7 @@ def build_ted_query(filters: Filters) -> str:
         parts.append(f"(publication-date <= {d})")
     if filters.active_only:
         today = datetime.now().strftime("%Y%m%d")
-        parts.append(f"(deadline-receipt-tenders >= {today})")
+        parts.append(f"(deadline-receipt-request >= {today})")
     if not parts:
         default_date = (datetime.now() - timedelta(days=30)).strftime("%Y%m%d")
         parts.append(f"(publication-date >= {default_date})")
@@ -217,7 +217,7 @@ async def search_notices(req: SearchRequest):
                     notice = SimpleNotice(
                         publication_number=safe_extract(item.get("publication-number", "N/A")),
                         publication_date=safe_extract(item.get("publication-date")),
-                        deadline_date=safe_extract(item.get("deadline-receipt-tenders")),
+                        deadline_date=safe_extract(item.get("deadline-receipt-request")),
                         title=safe_extract(item.get("notice-title")),
                         buyer=safe_extract(item.get("buyer-name")),
                         country=safe_extract(item.get("buyer-country")),
