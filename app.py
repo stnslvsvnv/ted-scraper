@@ -36,8 +36,7 @@ SEARCH_FIELDS = [
     "buyer-name",
     "buyer-country",
     "deadline-date-part",
-    "organisation-city-buyer",
-    "cpv-code"
+    "organisation-city-buyer"
 ]
 
 def safe_extract(value: Any) -> str:
@@ -148,10 +147,7 @@ def build_ted_query(filters: Filters) -> str:
             country_expr = " OR ".join([f'buyer-country = "{c}"' for c in codes])
             parts.append(f"({country_expr})")
     if filters.cpv_code:
-        # Валидация CPV кода (8 цифр) и поиск по правильному полю
-        cpv_clean = ''.join(c for c in filters.cpv_code if c.isdigit())
-        if cpv_clean:
-            parts.append(f'(cpv-code ~ "{cpv_clean}*")')
+        parts.append(f'(notice-title ~ "{filters.cpv_code}")')
     if filters.publication_date_from:
         d = filters.publication_date_from.replace("-", "")
         parts.append(f"(publication-date >= {d})")
@@ -169,8 +165,7 @@ def build_ted_query(filters: Filters) -> str:
 @app.post("/search", response_model=SearchResponse)
 async def search_notices(req: SearchRequest):
     try:
-        default_date = (datetime.now() - timedelta(days=30)).strftime("%Y%m%d")
-        query = build_ted_query(req.filters) if req.filters else f"(publication-date >= {default_date})"
+        query = build_ted_query(req.filters) if req.filters else "(publication-date >= 20251101)"
         logger.info(f"TED Query: {query}")
         
         payload = {
@@ -213,7 +208,7 @@ async def search_notices(req: SearchRequest):
                         buyer=safe_extract(item.get("buyer-name")),
                         country=safe_extract(item.get("buyer-country")),
                         city=safe_extract(item.get("organisation-city-buyer")),
-                        cpv_code=safe_extract(item.get("cpv-code"))
+                        cpv_code=""
                     )
                     notices_out.append(notice)
                     logger.debug(f"Parsed notice {i+1}: {notice.buyer[:50]}...")

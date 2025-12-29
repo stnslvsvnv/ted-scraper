@@ -13,7 +13,6 @@ let totalResults = 0;
 let totalPages = 1;
 let selectedCountries = new Set();
 let countriesList = [];
-let healthCheckInterval = null;
 
 // DOM элементы
 const elements = {
@@ -221,19 +220,19 @@ function clearForm() {
     if (elements.cpvCode) elements.cpvCode.value = "";
     if (elements.activeOnly) elements.activeOnly.checked = false;
     if (elements.pageSize) elements.pageSize.value = "25";
-
+    
     // Очистка выбранных стран
     selectedCountries.clear();
     updateSelectedCountriesDisplay();
-
+    
     // Снятие галочек в выпадающем списке
     document.querySelectorAll('#country-dropdown input[type="checkbox"]').forEach(checkbox => {
         checkbox.checked = false;
     });
-
+    
     setDefaultDates();
     currentPage = 1;
-
+    
     // Скрываем результаты
     hideResults();
     showInfo("Форма очищена. Введите новые критерии поиска.");
@@ -243,15 +242,10 @@ function clearForm() {
 async function checkBackendStatus() {
     console.log("🔍 CHECKING BACKEND...", CONFIG.BACKEND_BASE_URL + "/health");
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-        const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/health`, {
-            signal: controller.signal,
+        const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/health`, { 
+            timeout: 5000,
             cache: 'no-cache'
         });
-        clearTimeout(timeoutId);
-
         console.log("✅ HEALTH RESPONSE:", response.status);
         if (response.ok) {
             setBackendStatus(true);
@@ -262,10 +256,7 @@ async function checkBackendStatus() {
         console.error("❌ HEALTH ERROR:", error);
         setBackendStatus(false);
     }
-
-    // Очищаем предыдущий интервал для предотвращения утечки памяти
-    if (healthCheckInterval) clearTimeout(healthCheckInterval);
-    healthCheckInterval = setTimeout(checkBackendStatus, 20000);
+    setTimeout(checkBackendStatus, 20000);
 }
 
 function setBackendStatus(isOnline) {
@@ -288,10 +279,10 @@ function getSearchRequest() {
     const cpvCode = elements.cpvCode?.value?.trim() || null;
     const activeOnly = elements.activeOnly?.checked || false;
     const limit = parseInt(elements.pageSize?.value || "25", 10);
-
+    
     // Преобразуем Set стран в строку
     const country = selectedCountries.size > 0 ? Array.from(selectedCountries).join(",") : null;
-
+    
     return {
         filters: {
             text,
@@ -315,10 +306,10 @@ async function performSearch() {
         hideInfo();
         hideEmptyState();
         hideResults();
-
+        
         const request = getSearchRequest();
         console.log("📤 SEARCH REQUEST:", request);
-
+        
         const response = await fetch(`${CONFIG.BACKEND_BASE_URL}/search`, {
             method: "POST",
             headers: {
@@ -328,24 +319,24 @@ async function performSearch() {
             body: JSON.stringify(request),
             cache: 'no-cache'
         });
-
+        
         console.log("📥 SEARCH RESPONSE:", response.status);
-
+        
         if (!response.ok) {
             const error = await response.json().catch(() => ({}));
             console.error("❌ SEARCH ERROR:", error);
             throw new Error(error.detail || `HTTP ${response.status}`);
         }
-
+        
         const data = await response.json();
         console.log("✅ SEARCH DATA:", data);
-
+        
         // Обработка полученных данных
         if (data.notices && data.notices.length > 0) {
             totalResults = data.total;
             const limit = parseInt(elements.pageSize?.value || "25", 10);
             totalPages = Math.ceil(totalResults / limit);
-
+            
             displayResults(data.notices);
             showResults();
             updatePagination();
@@ -355,7 +346,7 @@ async function performSearch() {
             showNoResults();
             hideResults();
         }
-
+        
     } catch (error) {
         console.error("💥 FULL ERROR:", error);
         showError(`Ошибка поиска: ${error.message}`);
@@ -367,19 +358,18 @@ async function performSearch() {
 // Отображение результатов
 function displayResults(notices) {
     if (!elements.resultsTbody) return;
-
+    
     elements.resultsTbody.innerHTML = "";
-
+    
     notices.forEach(notice => {
         const row = document.createElement("tr");
         row.className = "notice-row";
-        row.style.cursor = "pointer"; // Индикация кликабельности
         row.dataset.publicationNumber = notice.publication_number;
-
+        
         // Форматирование дат
         const pubDate = notice.publication_date ? formatDate(notice.publication_date) : "—";
         const deadlineDate = notice.deadline_date ? formatDate(notice.deadline_date) : "—";
-
+        
         row.innerHTML = `
             <td><strong>${notice.publication_number}</strong></td>
             <td>${pubDate}</td>
@@ -389,7 +379,7 @@ function displayResults(notices) {
             <td>${notice.city || '—'}</td>
             <td>${notice.cpv_code || '—'}</td>
         `;
-
+        
         // Click handler для expandable row
         row.addEventListener('click', async () => {
             // сначала пробуем найти уже существующую строку деталей
@@ -432,10 +422,9 @@ function displayResults(notices) {
                     </div>
                 </td>
             `;
-            // ИСПРАВЛЕНИЕ: Вставляем строку деталей сразу ПОСЛЕ текущей строки, а не в конец таблицы
-            row.insertAdjacentElement('afterend', detailRow);
+            elements.resultsTbody.appendChild(detailRow);
         });
-
+        
         elements.resultsTbody.appendChild(row);
     });
 }
@@ -444,14 +433,14 @@ function formatDate(dateStr) {
     try {
         // Предполагаем, что дата может приходить в формате YYYYMMDD или YYYY-MM-DD
         let cleanDate = dateStr.replace(/-/g, '');
-
+        
         if (cleanDate.length === 8) {
             const year = cleanDate.substring(0, 4);
             const month = cleanDate.substring(4, 6);
             const day = cleanDate.substring(6, 8);
             return `${day}.${month}.${year}`;
         }
-
+        
         return dateStr || '—';
     } catch {
         return dateStr || '—';
@@ -540,12 +529,12 @@ window.testBackend = async () => {
     try {
         const health = await fetch('/health');
         console.log('HEALTH:', await health.json());
-
+        
         const countries = await fetch('/countries');
         console.log('COUNTRIES:', await countries.json());
-
+        
         console.log('✅ Backend работает!');
-    } catch (e) {
+    } catch(e) {
         console.error('❌ Backend сломан:', e);
     }
 };
