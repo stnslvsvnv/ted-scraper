@@ -40,7 +40,7 @@ SEARCH_FIELDS = [
 ]
 
 def safe_extract(value: Any) -> str:
-    """Агрессивная обработка TED данных → строка"""
+    """Извлечение текста из TED данных с приоритетом английского языка"""
     if value is None:
         return ""
     
@@ -52,7 +52,10 @@ def safe_extract(value: Any) -> str:
     if isinstance(value, (int, float)):
         return str(value)
     
-    # Рекурсивно разбираем
+    # Приоритетные ключи для английского языка
+    ENGLISH_KEYS = ["ENG", "EN", "eng", "en"]
+    
+    # Рекурсивно разбираем с приоритетом английского
     def dig_deep(v):
         if isinstance(v, str):
             return v[:200]
@@ -61,7 +64,11 @@ def safe_extract(value: Any) -> str:
         if isinstance(v, list) and len(v) > 0:
             return dig_deep(v[0])
         if isinstance(v, dict):
-            # Первый язык из мультиязычного
+            # Сначала ищем английский ключ
+            for eng_key in ENGLISH_KEYS:
+                if eng_key in v:
+                    return dig_deep(v[eng_key])
+            # Если нет английского — берём первый доступный
             first_val = next(iter(v.values()), None)
             if first_val:
                 return dig_deep(first_val)
