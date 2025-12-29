@@ -181,8 +181,13 @@ async def search_notices(req: SearchRequest):
         if API_KEY:
             payload["apiKey"] = API_KEY
 
+        headers = {
+            "Accept-Language": "en",
+            "Content-Type": "application/json"
+        }
+        
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(TED_API_URL, json=payload)
+            resp = await client.post(TED_API_URL, json=payload, headers=headers)
             if resp.status_code != 200:
                 text = resp.text[:500]
                 logger.error(f"TED API error {resp.status_code}: {text}")
