@@ -35,8 +35,9 @@ SEARCH_FIELDS = [
     "notice-title",
     "buyer-name",
     "buyer-country",
-    "deadline-date-part",
-    "organisation-city-buyer"
+    "deadline-receipt-tenders",
+    "organisation-city-buyer",
+    "classification-cpv"
 ]
 
 def safe_extract(value: Any) -> str:
@@ -154,7 +155,8 @@ def build_ted_query(filters: Filters) -> str:
             country_expr = " OR ".join([f'buyer-country = "{c}"' for c in codes])
             parts.append(f"({country_expr})")
     if filters.cpv_code:
-        parts.append(f'(notice-title ~ "{filters.cpv_code}")')
+        cpv = filters.cpv_code.strip()
+        parts.append(f'(classification-cpv = {cpv}*)')
     if filters.publication_date_from:
         d = filters.publication_date_from.replace("-", "")
         parts.append(f"(publication-date >= {d})")
@@ -163,7 +165,7 @@ def build_ted_query(filters: Filters) -> str:
         parts.append(f"(publication-date <= {d})")
     if filters.active_only:
         today = datetime.now().strftime("%Y%m%d")
-        parts.append(f"(deadline-date-part >= {today})")
+        parts.append(f"(deadline-receipt-tenders >= {today})")
     if not parts:
         default_date = (datetime.now() - timedelta(days=30)).strftime("%Y%m%d")
         parts.append(f"(publication-date >= {default_date})")
@@ -215,12 +217,12 @@ async def search_notices(req: SearchRequest):
                     notice = SimpleNotice(
                         publication_number=safe_extract(item.get("publication-number", "N/A")),
                         publication_date=safe_extract(item.get("publication-date")),
-                        deadline_date=safe_extract(item.get("deadline-date-part")),
+                        deadline_date=safe_extract(item.get("deadline-receipt-tenders")),
                         title=safe_extract(item.get("notice-title")),
                         buyer=safe_extract(item.get("buyer-name")),
                         country=safe_extract(item.get("buyer-country")),
                         city=safe_extract(item.get("organisation-city-buyer")),
-                        cpv_code=""
+                        cpv_code=safe_extract(item.get("classification-cpv"))
                     )
                     notices_out.append(notice)
                     logger.debug(f"Parsed notice {i+1}: {notice.buyer[:50]}...")
